@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>부동산 모니터</title>
+<style>
+*,*::before,*::after{box-sizing:border-box}
+:root{
+  --bg:#f6f7f9; --card:#fff; --fg:#1a1d21; --muted:#6b7280; --line:#e3e6ea;
+  --accent:#2563eb; --new:#0f9d58; --new-bg:#e6f4ea;
+  --up:#d93025; --up-bg:#fce8e6; --down:#1a73e8; --down-bg:#e8f0fe;
+  --chip:#eef1f5;
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --bg:#14171a; --card:#1c2024; --fg:#e6e8ea; --muted:#9aa3ad; --line:#2c3238;
+    --accent:#7aa7ff; --new:#5fd08a; --new-bg:#12351f;
+    --up:#ff8a80; --up-bg:#3a1c19; --down:#8ab4f8; --down-bg:#16263f;
+    --chip:#252b31;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#14171a; --card:#1c2024; --fg:#e6e8ea; --muted:#9aa3ad; --line:#2c3238;
+  --accent:#7aa7ff; --new:#5fd08a; --new-bg:#12351f;
+  --up:#ff8a80; --up-bg:#3a1c19; --down:#8ab4f8; --down-bg:#16263f;
+  --chip:#252b31;
+}
+:root[data-theme="light"]{
+  --bg:#f6f7f9; --card:#fff; --fg:#1a1d21; --muted:#6b7280; --line:#e3e6ea;
+  --accent:#2563eb; --new:#0f9d58; --new-bg:#e6f4ea;
+  --up:#d93025; --up-bg:#fce8e6; --down:#1a73e8; --down-bg:#e8f0fe;
+  --chip:#eef1f5;
+}
+body{
+  margin:0;padding:24px 16px 64px;background:var(--bg);color:var(--fg);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Malgun Gothic",
+    "Apple SD Gothic Neo",Roboto,sans-serif;
+  font-size:15px;line-height:1.55;-webkit-text-size-adjust:100%;
+}
+.wrap{max-width:1180px;margin:0 auto}
+h1{font-size:1.5rem;margin:0 0 4px;letter-spacing:-.02em}
+.sub{color:var(--muted);font-size:.875rem;margin-bottom:28px}
+h2{font-size:1.15rem;margin:0;letter-spacing:-.01em}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;
+  padding:20px;margin-bottom:22px}
+.chead{display:flex;flex-wrap:wrap;gap:10px;align-items:baseline;
+  justify-content:space-between;margin-bottom:16px}
+.stats{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:16px}
+.stat{background:var(--chip);border-radius:10px;padding:10px 14px;min-width:132px}
+.stat .k{font-size:.75rem;color:var(--muted)}
+.stat .v{font-size:1.05rem;font-weight:650;letter-spacing:-.01em}
+.filters{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px}
+.filters button{font:inherit;font-size:.8125rem;padding:5px 12px;cursor:pointer;
+  border:1px solid var(--line);background:var(--card);color:var(--muted);border-radius:999px}
+.filters button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);
+  color:#fff;font-weight:600}
+.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+table{border-collapse:collapse;width:100%;min-width:760px;font-size:.875rem}
+th,td{padding:9px 10px;text-align:left;border-bottom:1px solid var(--line);
+  white-space:nowrap;vertical-align:top}
+th{font-size:.75rem;color:var(--muted);font-weight:600;cursor:pointer;
+  user-select:none;position:sticky;top:0;background:var(--card)}
+th:hover{color:var(--fg)}
+th::after{content:"";opacity:.45;font-size:.7em}
+th[data-dir="asc"]::after{content:" ▲"}
+th[data-dir="desc"]::after{content:" ▼"}
+td.num{text-align:right;font-variant-numeric:tabular-nums}
+td.feat{white-space:normal;min-width:220px;color:var(--muted);font-size:.8125rem}
+tr.hidden{display:none}
+.tag{display:inline-block;font-size:.7rem;font-weight:700;padding:2px 7px;
+  border-radius:6px;letter-spacing:.02em}
+.tag.new{background:var(--new-bg);color:var(--new)}
+.tag.up{background:var(--up-bg);color:var(--up)}
+.tag.down{background:var(--down-bg);color:var(--down)}
+.price{font-weight:650;font-variant-numeric:tabular-nums}
+.old{color:var(--muted);text-decoration:line-through;font-size:.8em;margin-right:4px}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+.gone{margin-top:12px;font-size:.8125rem;color:var(--muted)}
+.empty{color:var(--muted);padding:16px 0}
+footer{color:var(--muted);font-size:.8125rem;text-align:center;margin-top:32px}
+#theme{position:fixed;top:14px;right:14px;font:inherit;font-size:1rem;
+  background:var(--card);color:var(--fg);border:1px solid var(--line);
+  border-radius:999px;width:38px;height:38px;cursor:pointer;line-height:1}
+@media(max-width:640px){body{padding:16px 10px 48px}.card{padding:14px}}
+</style>
+</head>
+<body>
+<button id="theme" type="button" aria-label="테마 전환">◐</button>
+<div class="wrap">
+<h1>🏠 부동산 모니터</h1>
+<p class="sub">2026-07-31 08:49 (금) 기준 · 전체 17건 · 신규 17건</p>
+<div class="card">
+<div class="chead"><h2>성복역현대홈타운</h2><span class="sub">💰 매매</span></div>
+<div class="stats"><div class="stat"><div class="k">전체</div><div class="v">17건</div></div><div class="stat"><div class="k">20평대 · 5건</div><div class="v">10.00억~11.00억</div></div><div class="stat"><div class="k">30평대 · 12건</div><div class="v">10.00억~12.30억</div></div></div>
+<div class="filters" data-target="t0_0"><button data-filter="all" aria-pressed="true">전체</button><button data-filter="20" aria-pressed="false">20평대</button><button data-filter="30" aria-pressed="false">30평대</button><button data-filter="changed" aria-pressed="false">신규·변동만</button></div>
+<div class="scroll"><table id="t0_0">
+<thead><tr><th></th><th>동</th><th>층</th><th>평형</th><th>전용</th><th>가격</th><th>방향</th><th>확인일</th><th>중개사</th><th>특징</th><th></th></tr></thead>
+<tbody><tr data-group="20" data-state="new"><td data-sort="0"><span class="tag new">신규</span></td><td data-sort="206">206</td><td class="num" data-sort="14.0">고/18</td><td class="num" data-sort="24.6">25평</td><td class="num" data-sort="59.93">59.93㎡</td><td class="num" data-sort="100000"><span class="price">10.00억</span></td><td data-sort="거실 기준">거실 기준</td><td data-sort="2026-07-30">2026-07-30</td><td class="num" data-sort="3">3</td><td class="feat" data-sort="추천,24형,최근올수리,깨끗하고 관리잘된집,세안고">추천,24형,최근올수리,깨끗하고 관리잘된집,세안고</td><td data-sort=""><a href="https://fin.land.naver.com/articles/2640998272" target="_blank" rel="noopener">보기</a></td></tr><tr data-group="20" data-state="new"><td data-sort="0"><span class="tag new">신규</span></td><td data-sort="204">204</td><td class="num" data-sort="7.0">7/20</td><td class="num" data-sort="24.6">25평</td><td class="num" data-sort="59.93">59.93㎡</td><td class="num" data-sort="103000"><span class="price">10.30억</span></td><td data-sort="거실 기준">거실 기준</td><td data-sort="2026-07-30">2026-07-30</td><td class="num" data-sort="1">1</td><td class="feat" data-sort="중문 방주방확장등 최근특올수리 화이트톤 로얄동굿라인 입주협의">중문 방주방확장등 최근특올수리 화이트톤 로얄동굿라인 입주협의</td><td data-sort=""><a href="https://fin.land.naver.com/articles/2640813596" target="_blank" rel="noopener">보기</a></td></tr><tr data-group="20" data-state="new"><td data-sort="0"><span class="tag new">신규</span></td><td data-sort="206">206</td><td class="num" data-sort="14.0">고/18</td><td class="num" data-sort="24.6">25평</td><td class="num" data-sort="59.93">59.93㎡</td><td class="num" data-sort="103000"><span class="price">10.30억</span></td><td data-sort="거실 기준">거실 기준</td><td data-sort="2026-07-30">2026-07-30</td><td class="num" data-sort="1">1</td><td class="feat" data-sort="거실확장 방확장,남향,빠른 입주가,심곡초 성복역 롯데몰인접">거실확장 방확장,남향,빠른 입주가,심곡초 성복역 롯데몰인접</td><td data-sort=""><a href="https://fin.land.naver.com/articles/2641018014" target="_blank" rel="noopener">보기</a></td></tr><tr data-group="20" data-state="new"><td data-sort="0"><span class="tag new">신규</span></td><td data-sort="204">204</td><td class="num" data-sort="14.0">고/20</td><td class="num" data-sort="24.6">25평</td><td class="num" data-sort="59.93">59.93㎡</td><td class="num" data-sort="103000"><span class="price">10.30억</span></td><td data-sort="거실 기준">거실 기준</td><td data-sort="2026-07-20">2026-07-20</td><td class="num" data-sort="1">1</td><td class="feat" data-sort="로얄동,올수리,입주12월말에서내년2월사이">로얄동,올수리,입주12월말에서내년2월사이</td><td data-sort=""><a href="https://fin.land.naver.com/articles/2638795059" target="_blank" rel="noopener">보기</a></td></tr><tr data-group="20" data-state="new"><td data-sort="0"><span class="tag new">신규</span></td><td data-sort="204">204</td><td class="num" data-sort="14.0">고/20</td><td class="num" data-sort="24.6">25평</td><td class="num" data-sort="59.93">59.93㎡</td><td class="num" data-sort="110000"><span class="price">11.00억</span></td><td data-sort="거실 기준">거실 기준</td><td data-sort="2026-07-27">2026-07-27</td><td class="num" data-sort="2">2</td><td class="feat" data-sort="세안고 입주협의 로얄동 로얄층 성복역도보8분 초등학교 인접동 깨끗한관리">세안고 입주협의 로얄동 로얄층 성복역도보8분 초등학교 인접동 깨끗한관리</td><td data-sort=""><a href="https://fin.land.naver.com/articles/2640386651" target="_blank" rel="noopener">보기</a></td></tr><tr data-group="30" data-state="new"><td data-sort="0"><span class="tag new">신규</span></td><td data-sort="203">203</td><td class="num" data-sort="1.0">1/18</td><td class="num" data-sort="32.9">33평</td><td class="num" data-sort="84.85">84.85㎡</td><td class="num" data-sort="100000"><span class="price">10.00억</span></td><td data-sort="거실 기준">거실 기준</td><td data-sort="2026-07-02">2026-07-02</td><td class="num" data-sort="1">1</td><td class="feat" data-sort="라인굿,일부수리,아주깨끗하게관리잘된집,성복역롯데몰인접">라인굿,일부수리,아주깨끗하게관리잘된집,성복역롯데몰인접</td><td data-sort=""><a href="https://fin.land.naver.com/articles/2635615641" target="_blank" rel="noopener">보기</a></td></tr><tr data-group="30" data-state="new"><td data-sort="0"><span class="tag new">신규</span></td><td data-sort="201">201</td><td class="num" data-sort="3.0">저/20</td><td class="num" data-sort="32.9">33평</td><td class="num" data-sort="84.85">84.85㎡</td><td class="num" data-sort="104000"><span class="price">10.40억</span></td><td data-sort="거실 기준">거실 기준</td><td data-sort="2026-07-30">2026-07-30</td><td class="num" data-sort="1">1</td><td class="feat" data-sort=""></td><td data-sort=""><a href="https://fin.land.naver.com/articles/2640822349" target="_blank" rel="noopener">보기</a></td></tr><tr data-group="30" data-state="new"><td data-sort="0"><span class="tag new">신규</span></td><td data-sort="201">201</td><td class="num" data-sort="1.0">1/20</td><td class="num" data-sort="32.9">33평</td><td class="num" data-sort="84.85">84.85㎡</td><td class="num" data-sort="105000"><span class="price">10.50억</span></td><td data-sort="거실 기준">거실 기준</td><td data-sort="2026-07-31">2026-07-31</td><td class="num" data-sort="4">4</td><td class="feat" data-sort="추천ヘ샷시포함 특올수리,성복역5분">추천ヘ샷시포함 특올수리,성복역5분</td><td data-sort=""><a href="https://fin.land.naver.com/articles/2641027616" target="_blank" rel="noopener">보기</a></td></tr><tr data-group="30" data-state="new"><td data-sort="0"><span class="tag new">신규</span></td><td data-sort="202">202</td><td class="num" data-sort="8.0">중/20</td><td class="num" data-sort="32.9">33평</td><td class="num" data-sort="84.85">84.85㎡</td><td class="num" data-sort="110000"><span class="price">11.00억</span></td><td data-sort="거실 기준">거실 기준</td><td data-sort="2026-07-30">2026-07-30</td><td class="num" data-sort="1">1</td><td class="feat" data-sort="강추로얄동앞뒤확트인남향,방1개확장,성복역가장가까운동,복이많은집">강추로얄동앞뒤확트인남향,방1개확장,성복역가장가까운동,복이많은집</td><td data-sort=""><a href="https://fin.land.naver.com/articles/2641017384" target="_blank" rel="noopener">보기</a></td></tr><tr data-group="30" data-state="new"><td data-sort="0"><span class="tag new">신규</span></td><td data-sort="202">202</td><td class="num" data-sort="8.0">중/20</td><td class="num" data-sort="32.9">33평</td><td class="num" data-sort="84.85">84.85㎡</td><td class="num" data-sort="112000"><span class="price">11.20억</span></td><td data-sort="거실 기준">거실 기준</td><td data-sort="2026-07-30">2026-07-30</td><td class="num" data-sort="1">1</td><td class="feat" data-sort="강추로얄동,전체올수리 남향,앞뒤확트인조망굿,지하철역가까운동,주차장연결">강추로얄동,전체올수리 남향,앞뒤확트인조망굿,지하철역가까운동,주차장연결</td><td data-sort=""><a href="https://fin.land.naver.com/articles/2641017685" target="_blank" rel="noopener">보기</a></td></tr><tr data-group="30" data-state="new"><td data-sort="0"><span class="tag new">신규</span></td><td data-sort="205">205</td><td class="num" data-sort="10.0">10/20</td><td class="num" data-sort="32.9">33평</td><td class="num" data-sort="84.85">84.85㎡</td><td class="num" data-sort="115000"><span class="price">11.50억</span></td><td data-sort="거실 기준">거실 기준</td><td data-sort="2026-07-28">2026-07-28</td><td class="num" data-sort="1">1</td><td class="feat" data-sort="입지최고,성복역롯데몰인접,지하주차장연결편리해요">입지최고,성복역롯데몰인접,지하주차장연결편리해요</td><td data-sort=""><a href="https://fin.land.naver.com/articles/2640433891" target="_blank" rel="noopener">보기</a></td></tr><tr data-group="30" data-state="new"><td data-sort="0"><span class="tag new">신규</span></td><td data-sort="202">202</td><td class="num" data-sort="8.0">중/20</td><td class="num" data-sort="32.9">33평</td><td class="num" data-sort="84.85">84.85㎡</td><td class="num" data-sort="115000"><span class="price">11.50억</span></td><td data-sort="거실 기준">거실 기준</td><td data-sort="2026-07-22">2026-07-22</td><td class="num" data-sort="2">2</td><td class="feat" data-sort="역세권 셔세권 롯데몰인접 부분수리 주인거주 날짜협의">역세권 셔세권 롯데몰인접 부분수리 주인거주 날짜협의</td><td data-sort=""><a href="https://fin.land.naver.com/articles/2639337298" target="_blank" rel="noopener">보기</a></td></tr><tr data-group="30" data-state="new"><td data-sort="0"><span class="tag new">신규</span></td><td data-sort="201">201</td><td class="num" data-sort="3.0">저/20</td><td class="num" data-sort="32.9">33평</td><td class="num" data-sort="84.85">84.85㎡</td><td class="num" data-sort="120000"><span class="price">12.00억</span></td><td data-sort="거실 기준">거실 기준</td><td data-sort="2026-07-30">2026-07-30</td><td class="num" data-sort="2">2</td><td class="feat" data-sort="귀한실입주 전망굿 성복역롯데몰도보5분 초품아">귀한실입주 전망굿 성복역롯데몰도보5분 초품아</td><td data-sort=""><a href="https://fin.land.naver.com/articles/2640822104" target="_blank" rel="noopener">보기</a></td></tr><tr data-group="30" data-state="new"><td data-sort="0"><span class="tag new">신규</span></td><td data-sort="203">203</td><td class="num" data-sort="16.0">16/18</td><td class="num" data-sort="32.9">33평</td><td class="num" data-sort="84.85">84.85㎡</td><td class="num" data-sort="120000"><span class="price">12.00억</span></td><td data-sort="거실 기준">거실 기준</td><td data-sort="2026-07-23">2026-07-23</td><td class="num" data-sort="1">1</td><td class="feat" data-sort="성복역 초역세권 입지좋고 라인좋은 아파트,주인거주">성복역 초역세권 입지좋고 라인좋은 아파트,주인거주</td><td data-sort=""><a href="https://fin.land.naver.com/articles/2639571930" target="_blank" rel="noopener">보기</a></td></tr><tr data-group="30" data-state="new"><td data-sort="0"><span class="tag new">신규</span></td><td data-sort="204">204</td><td class="num" data-sort="14.0">고/20</td><td class="num" data-sort="32.9">33평</td><td class="num" data-sort="84.85">84.85㎡</td><td class="num" data-sort="120000"><span class="price">12.00억</span></td><td data-sort="거실 기준">거실 기준</td><td data-sort="2026-07-29">2026-07-29</td><td class="num" data-sort="4">4</td><td class="feat" data-sort="역세권 셔세권 롯데몰인접 부분수리 주인거주 날짜협의">역세권 셔세권 롯데몰인접 부분수리 주인거주 날짜협의</td><td data-sort=""><a href="https://fin.land.naver.com/articles/2640697283" target="_blank" rel="noopener">보기</a></td></tr><tr data-group="30" data-state="new"><td data-sort="0"><span class="tag new">신규</span></td><td data-sort="205">205</td><td class="num" data-sort="20.0">20/20</td><td class="num" data-sort="32.9">33평</td><td class="num" data-sort="84.85">84.85㎡</td><td class="num" data-sort="120000"><span class="price">12.00억</span></td><td data-sort="거실 기준">거실 기준</td><td data-sort="2026-07-10">2026-07-10</td><td class="num" data-sort="3">3</td><td class="feat" data-sort="주인거주,올수리,작은방과 주방확장,엘베지하연결">주인거주,올수리,작은방과 주방확장,엘베지하연결</td><td data-sort=""><a href="https://fin.land.naver.com/articles/2637104016" target="_blank" rel="noopener">보기</a></td></tr><tr data-group="30" data-state="new"><td data-sort="0"><span class="tag new">신규</span></td><td data-sort="204">204</td><td class="num" data-sort="3.0">저/20</td><td class="num" data-sort="32.9">33평</td><td class="num" data-sort="84.85">84.85㎡</td><td class="num" data-sort="123000"><span class="price">12.30억</span></td><td data-sort="거실 기준">거실 기준</td><td data-sort="2026-07-28">2026-07-28</td><td class="num" data-sort="1">1</td><td class="feat" data-sort="최고로얄동로얄라인,최근특올수리,편안한녹지조망굿">최고로얄동로얄라인,최근특올수리,편안한녹지조망굿</td><td data-sort=""><a href="https://fin.land.naver.com/articles/2640434849" target="_blank" rel="noopener">보기</a></td></tr></tbody>
+</table></div>
+
+</div>
+<footer>네이버 부동산 매물 정보를 하루 1회 수집합니다. 실제 거래 전 반드시 원문을 확인하세요.</footer>
+</div>
+<script>
+document.querySelectorAll('table').forEach(function(table){
+  table.querySelectorAll('th').forEach(function(th,idx){
+    th.addEventListener('click',function(){
+      var dir = th.dataset.dir === 'asc' ? 'desc' : 'asc';
+      table.querySelectorAll('th').forEach(function(o){delete o.dataset.dir});
+      th.dataset.dir = dir;
+      var body = table.tBodies[0];
+      var rows = Array.prototype.slice.call(body.rows);
+      rows.sort(function(a,b){
+        var x = a.cells[idx].dataset.sort, y = b.cells[idx].dataset.sort;
+        var nx = parseFloat(x), ny = parseFloat(y);
+        var r = (!isNaN(nx) && !isNaN(ny)) ? nx-ny : String(x).localeCompare(String(y),'ko');
+        return dir === 'asc' ? r : -r;
+      });
+      rows.forEach(function(r){body.appendChild(r)});
+    });
+  });
+});
+
+document.querySelectorAll('.filters').forEach(function(bar){
+  var table = document.getElementById(bar.dataset.target);
+  bar.addEventListener('click', function(ev){
+    var btn = ev.target.closest('button');
+    if(!btn) return;
+    bar.querySelectorAll('button').forEach(function(b){
+      b.setAttribute('aria-pressed', String(b === btn));
+    });
+    var key = btn.dataset.filter;
+    Array.prototype.forEach.call(table.tBodies[0].rows, function(row){
+      var show = key === 'all'
+        || row.dataset.group === key
+        || (key === 'changed' && row.dataset.state !== '');
+      row.classList.toggle('hidden', !show);
+    });
+  });
+});
+
+var root = document.documentElement;
+var btn = document.getElementById('theme');
+var saved = null;
+try { saved = localStorage.getItem('theme'); } catch(e) {}
+if(saved) root.dataset.theme = saved;
+btn.addEventListener('click', function(){
+  var dark = root.dataset.theme
+    ? root.dataset.theme === 'dark'
+    : matchMedia('(prefers-color-scheme:dark)').matches;
+  root.dataset.theme = dark ? 'light' : 'dark';
+  try { localStorage.setItem('theme', root.dataset.theme); } catch(e) {}
+});
+</script>
+</body>
+</html>

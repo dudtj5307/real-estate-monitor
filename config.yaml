@@ -1,0 +1,28 @@
+# 네이버 부동산 → 텔레그램 리포트 설정
+#
+# 단지번호는 https://fin.land.naver.com/complexes/{번호} 의 숫자 부분입니다.
+
+telegram:
+  # 이 저장소는 public 이므로 여기에 값을 적으면 누구나 볼 수 있습니다.
+  # 아래 두 값은 환경변수 / GitHub Secret 으로 전달하세요.
+  #   TELEGRAM_BOT_TOKEN  (필수)
+  #   TELEGRAM_CHAT_ID    (필수)
+  # chat_id 는 환경변수가 없을 때만 이 값을 폴백으로 씁니다. 비워두세요.
+  chat_id: ""
+
+defaults:
+  trade_types: [매매]        # 매매 / 전세 / 월세 / 단기임대
+  pyeong_groups: [20, 30]   # 공급면적 기준 평형대. 비우면([]) 전체
+  price_max: null           # 만원 단위 상한. 예) 100000 = 10억. null이면 제한 없음
+  price_min: null
+
+complexes:
+  - name: 성복역현대홈타운
+    number: "8692"
+
+  # 단지별로 defaults 를 덮어쓸 수 있습니다
+  # - name: 다른단지
+  #   number: "12345"
+  #   trade_types: [매매, 전세]
+  #   pyeong_groups: [30]
+  #   price_max: 100000
