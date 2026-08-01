@@ -23,6 +23,7 @@ class ComplexConfig:
 @dataclass
 class Config:
     chat_id: str
+    repo: str = ""
     complexes: list[ComplexConfig] = field(default_factory=list)
 
 
@@ -62,4 +63,8 @@ def load(path: str | Path) -> Config:
     # config.yaml 의 chat_id 는 로컬 편의용 폴백.
     chat_id = os.environ.get("TELEGRAM_CHAT_ID") or (raw.get("telegram") or {}).get("chat_id") or ""
 
-    return Config(chat_id=str(chat_id), complexes=complexes)
+    return Config(
+        chat_id=str(chat_id),
+        repo=str((raw.get("site") or {}).get("repo") or ""),
+        complexes=complexes,
+    )

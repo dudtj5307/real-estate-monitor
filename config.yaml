@@ -10,11 +10,18 @@ telegram:
   # chat_id 는 환경변수가 없을 때만 이 값을 폴백으로 씁니다. 비워두세요.
   chat_id: ""
 
+# 여기서는 넓게 수집하고, 실제 선택은 HTML 대시보드 UI에서 합니다.
+# (좁히면 UI에서 다시 넓힐 수 없으므로 수집 단계에서는 열어둡니다)
 defaults:
-  trade_types: [매매]        # 매매 / 전세 / 월세 / 단기임대
-  pyeong_groups: [20, 30]   # 공급면적 기준 평형대. 비우면([]) 전체
-  price_max: null           # 만원 단위 상한. 예) 100000 = 10억. null이면 제한 없음
+  trade_types: [매매, 전세]   # 매매 / 전세 / 월세 / 단기임대
+  pyeong_groups: []          # 비우면 전체 평형. UI에서 20평대/30평대 선택
+  price_max: null            # 만원 단위 상한. 예) 100000 = 10억
   price_min: null
+
+site:
+  # 대시보드의 "지금 갱신" 버튼이 이 저장소의 Actions 실행 화면으로 연결됩니다.
+  # 비워두면 버튼이 표시되지 않습니다.
+  repo: "dudtj5307/real-estate-monitor"
 
 complexes:
   - name: 성복역현대홈타운

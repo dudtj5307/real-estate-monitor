@@ -1,11 +1,13 @@
 """GitHub Pages용 정적 HTML 대시보드 생성.
 
+수집은 넓게 하고, 거래유형·평형대 선택은 이 페이지의 UI에서 한다.
 외부 CDN 없이 단일 파일로 완결된다 (오프라인/CSP 환경에서도 동작).
 """
 
 from __future__ import annotations
 
 import html
+import json
 from datetime import datetime
 
 from .naver import Article
@@ -49,21 +51,25 @@ body{
 }
 .wrap{max-width:1180px;margin:0 auto}
 h1{font-size:1.5rem;margin:0 0 4px;letter-spacing:-.02em}
-.sub{color:var(--muted);font-size:.875rem;margin-bottom:28px}
+.sub{color:var(--muted);font-size:.875rem;margin:0 0 28px}
 h2{font-size:1.15rem;margin:0;letter-spacing:-.01em}
 .card{background:var(--card);border:1px solid var(--line);border-radius:14px;
   padding:20px;margin-bottom:22px}
 .chead{display:flex;flex-wrap:wrap;gap:10px;align-items:baseline;
-  justify-content:space-between;margin-bottom:16px}
-.stats{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:16px}
-.stat{background:var(--chip);border-radius:10px;padding:10px 14px;min-width:132px}
+  justify-content:space-between;margin-bottom:14px}
+.controls{display:flex;flex-direction:column;gap:8px;margin-bottom:14px}
+.row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.row .lbl{font-size:.75rem;color:var(--muted);min-width:52px}
+.row button{font:inherit;font-size:.8125rem;padding:5px 13px;cursor:pointer;
+  border:1px solid var(--line);background:var(--card);color:var(--muted);
+  border-radius:999px;transition:none}
+.row button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);
+  color:#fff;font-weight:600}
+.row button:disabled{opacity:.38;cursor:not-allowed}
+.stats{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px}
+.stat{background:var(--chip);border-radius:10px;padding:10px 14px;min-width:126px}
 .stat .k{font-size:.75rem;color:var(--muted)}
 .stat .v{font-size:1.05rem;font-weight:650;letter-spacing:-.01em}
-.filters{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px}
-.filters button{font:inherit;font-size:.8125rem;padding:5px 12px;cursor:pointer;
-  border:1px solid var(--line);background:var(--card);color:var(--muted);border-radius:999px}
-.filters button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);
-  color:#fff;font-weight:600}
 .scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
 table{border-collapse:collapse;width:100%;min-width:760px;font-size:.875rem}
 th,td{padding:9px 10px;text-align:left;border-bottom:1px solid var(--line);
@@ -71,7 +77,6 @@ th,td{padding:9px 10px;text-align:left;border-bottom:1px solid var(--line);
 th{font-size:.75rem;color:var(--muted);font-weight:600;cursor:pointer;
   user-select:none;position:sticky;top:0;background:var(--card)}
 th:hover{color:var(--fg)}
-th::after{content:"";opacity:.45;font-size:.7em}
 th[data-dir="asc"]::after{content:" ▲"}
 th[data-dir="desc"]::after{content:" ▼"}
 td.num{text-align:right;font-variant-numeric:tabular-nums}
@@ -87,58 +92,157 @@ tr.hidden{display:none}
 a{color:var(--accent);text-decoration:none}
 a:hover{text-decoration:underline}
 .gone{margin-top:12px;font-size:.8125rem;color:var(--muted)}
-.empty{color:var(--muted);padding:16px 0}
+.refresh{display:inline-block;margin-left:8px;padding:3px 11px;border-radius:999px;
+  background:var(--chip);border:1px solid var(--line);font-size:.8125rem;
+  font-weight:600;color:var(--accent);white-space:nowrap}
+.refresh:hover{text-decoration:none;border-color:var(--accent)}
+.empty{color:var(--muted);padding:16px 0;font-size:.875rem}
 footer{color:var(--muted);font-size:.8125rem;text-align:center;margin-top:32px}
 #theme{position:fixed;top:14px;right:14px;font:inherit;font-size:1rem;
   background:var(--card);color:var(--fg);border:1px solid var(--line);
   border-radius:999px;width:38px;height:38px;cursor:pointer;line-height:1}
-@media(max-width:640px){body{padding:16px 10px 48px}.card{padding:14px}}
+@media(max-width:640px){
+  body{padding:16px 10px 48px}.card{padding:14px}
+  .row .lbl{min-width:100%;margin-bottom:-2px}
+}
 """
 
 JS = """
-document.querySelectorAll('table').forEach(function(table){
-  table.querySelectorAll('th').forEach(function(th,idx){
-    th.addEventListener('click',function(){
+function parseNum(v){ var n = parseFloat(v); return isNaN(n) ? null : n; }
+
+function fmtPrice(manwon){
+  if(!manwon || manwon <= 0) return '-';
+  if(manwon >= 10000) return (manwon/10000).toFixed(2) + '억';
+  return manwon.toLocaleString('ko-KR') + '만';
+}
+
+function setupCard(card){
+  var table = card.querySelector('table');
+  var rows  = Array.prototype.slice.call(table.tBodies[0].rows);
+  var state = { trade: card.dataset.defaultTrade, group: 'all', onlyChanged: false };
+  var goneData = JSON.parse(card.querySelector('.gone-data').textContent);
+
+  function matches(row){
+    if(row.dataset.trade !== state.trade) return false;
+    if(state.group !== 'all' && row.dataset.group !== state.group) return false;
+    if(state.onlyChanged && !row.dataset.state) return false;
+    return true;
+  }
+
+  function render(){
+    var shown = [];
+    rows.forEach(function(row){
+      var ok = matches(row);
+      row.classList.toggle('hidden', !ok);
+      if(ok) shown.push(row);
+    });
+
+    // 현재 거래유형에 존재하는 평형대만 활성화
+    var groupsHere = {};
+    rows.forEach(function(r){
+      if(r.dataset.trade === state.trade) groupsHere[r.dataset.group] = true;
+    });
+    card.querySelectorAll('[data-group-btn]').forEach(function(b){
+      var g = b.dataset.groupBtn;
+      b.disabled = (g !== 'all' && !groupsHere[g]);
+      if(b.disabled && state.group === g){ state.group = 'all'; }
+    });
+
+    // 통계는 보이는 행에서 다시 계산
+    var prices = shown.map(function(r){ return parseNum(r.dataset.price); })
+                      .filter(function(v){ return v && v > 0; });
+    var newN = shown.filter(function(r){ return r.dataset.state === 'new'; }).length;
+    var chgN = shown.filter(function(r){ return r.dataset.state === 'changed'; }).length;
+    var goneN = goneData[state.trade]
+      ? goneData[state.trade].filter(function(g){
+          return state.group === 'all' || String(g.group) === state.group;
+        }).length
+      : 0;
+
+    var cells = [
+      ['건수', shown.length + '건'],
+      ['가격대', prices.length ? fmtPrice(Math.min.apply(null, prices)) + '~' +
+                                 fmtPrice(Math.max.apply(null, prices)) : '-'],
+      ['신규', newN + '건'],
+      ['가격변동', chgN + '건'],
+      ['소진', goneN + '건']
+    ];
+    card.querySelector('.stats').innerHTML = cells.map(function(c){
+      return '<div class="stat"><div class="k">' + c[0] +
+             '</div><div class="v">' + c[1] + '</div></div>';
+    }).join('');
+
+    card.querySelector('.empty').style.display = shown.length ? 'none' : 'block';
+    card.querySelector('.scroll').style.display = shown.length ? '' : 'none';
+
+    var goneBox = card.querySelector('.gone');
+    var list = (goneData[state.trade] || []).filter(function(g){
+      return state.group === 'all' || String(g.group) === state.group;
+    });
+    if(list.length){
+      goneBox.style.display = '';
+      goneBox.textContent = '❌ 소진 ' + list.length + '건 — ' +
+        list.slice(0,8).map(function(g){ return g.label; }).join(', ') +
+        (list.length > 8 ? ' 외 ' + (list.length - 8) + '건' : '');
+    } else {
+      goneBox.style.display = 'none';
+    }
+  }
+
+  card.querySelectorAll('[data-trade-btn]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      state.trade = btn.dataset.tradeBtn;
+      card.querySelectorAll('[data-trade-btn]').forEach(function(b){
+        b.setAttribute('aria-pressed', String(b === btn));
+      });
+      render();
+    });
+  });
+
+  card.querySelectorAll('[data-group-btn]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      if(btn.disabled) return;
+      state.group = btn.dataset.groupBtn;
+      card.querySelectorAll('[data-group-btn]').forEach(function(b){
+        b.setAttribute('aria-pressed', String(b === btn));
+      });
+      render();
+    });
+  });
+
+  var chg = card.querySelector('[data-changed-btn]');
+  chg.addEventListener('click', function(){
+    state.onlyChanged = !state.onlyChanged;
+    chg.setAttribute('aria-pressed', String(state.onlyChanged));
+    render();
+  });
+
+  table.querySelectorAll('th').forEach(function(th, idx){
+    th.addEventListener('click', function(){
       var dir = th.dataset.dir === 'asc' ? 'desc' : 'asc';
-      table.querySelectorAll('th').forEach(function(o){delete o.dataset.dir});
+      table.querySelectorAll('th').forEach(function(o){ delete o.dataset.dir; });
       th.dataset.dir = dir;
       var body = table.tBodies[0];
-      var rows = Array.prototype.slice.call(body.rows);
-      rows.sort(function(a,b){
+      rows.sort(function(a, b){
         var x = a.cells[idx].dataset.sort, y = b.cells[idx].dataset.sort;
-        var nx = parseFloat(x), ny = parseFloat(y);
-        var r = (!isNaN(nx) && !isNaN(ny)) ? nx-ny : String(x).localeCompare(String(y),'ko');
+        var nx = parseNum(x), ny = parseNum(y);
+        var r = (nx !== null && ny !== null) ? nx - ny
+              : String(x).localeCompare(String(y), 'ko');
         return dir === 'asc' ? r : -r;
       });
-      rows.forEach(function(r){body.appendChild(r)});
+      rows.forEach(function(r){ body.appendChild(r); });
     });
   });
-});
 
-document.querySelectorAll('.filters').forEach(function(bar){
-  var table = document.getElementById(bar.dataset.target);
-  bar.addEventListener('click', function(ev){
-    var btn = ev.target.closest('button');
-    if(!btn) return;
-    bar.querySelectorAll('button').forEach(function(b){
-      b.setAttribute('aria-pressed', String(b === btn));
-    });
-    var key = btn.dataset.filter;
-    Array.prototype.forEach.call(table.tBodies[0].rows, function(row){
-      var show = key === 'all'
-        || row.dataset.group === key
-        || (key === 'changed' && row.dataset.state !== '');
-      row.classList.toggle('hidden', !show);
-    });
-  });
-});
+  render();
+}
+
+document.querySelectorAll('.card').forEach(setupCard);
 
 var root = document.documentElement;
-var btn = document.getElementById('theme');
-var saved = null;
-try { saved = localStorage.getItem('theme'); } catch(e) {}
-if(saved) root.dataset.theme = saved;
-btn.addEventListener('click', function(){
+var themeBtn = document.getElementById('theme');
+try { var saved = localStorage.getItem('theme'); if(saved) root.dataset.theme = saved; } catch(e) {}
+themeBtn.addEventListener('click', function(){
   var dark = root.dataset.theme
     ? root.dataset.theme === 'dark'
     : matchMedia('(prefers-color-scheme:dark)').matches;
@@ -168,8 +272,7 @@ def _row(article: Article, state: str, old_price: int) -> str:
     if state == "new":
         tag = '<span class="tag new">신규</span>'
     elif state == "changed":
-        up = article.price > old_price
-        cls = "up" if up else "down"
+        cls = "up" if article.price > old_price else "down"
         tag = f'<span class="tag {cls}">{fmt_delta(article.price - old_price)}</span>'
     else:
         tag = ""
@@ -182,13 +285,14 @@ def _row(article: Article, state: str, old_price: int) -> str:
     else:
         price_cell = f'<span class="price">{fmt_price(article.price)}</span>'
     if article.rent:
-        price_cell += f' / {fmt_price(article.rent)}'
+        price_cell += f" / {fmt_price(article.rent)}"
 
-    link = f'<a href="{article.url}" target="_blank" rel="noopener">보기</a>'
+    order = 0 if state == "new" else 1 if state == "changed" else 2
 
     return (
-        f'<tr data-group="{article.pyeong_group}" data-state="{state}">'
-        f'<td data-sort="{0 if state == "new" else 1 if state == "changed" else 2}">{tag}</td>'
+        f'<tr data-trade="{_esc(article.trade_type)}" data-group="{article.pyeong_group}"'
+        f' data-state="{state}" data-price="{article.price}">'
+        f'<td data-sort="{order}">{tag}</td>'
         f'<td data-sort="{_esc(article.dong)}">{_esc(article.dong)}</td>'
         f'<td class="num" data-sort="{_floor_sort(article.floor)}">{_esc(article.floor)}</td>'
         f'<td class="num" data-sort="{article.pyeong:.1f}">{article.pyeong:.0f}평</td>'
@@ -198,89 +302,94 @@ def _row(article: Article, state: str, old_price: int) -> str:
         f'<td data-sort="{_esc(article.confirm_date)}">{_esc(article.confirm_date)}</td>'
         f'<td class="num" data-sort="{article.realtor_count}">{article.realtor_count}</td>'
         f'<td class="feat" data-sort="{_esc(article.feature)}">{_esc(article.feature)}</td>'
-        f'<td data-sort="">{link}</td>'
-        f'</tr>'
+        f'<td data-sort="">'
+        f'<a href="{article.url}" target="_blank" rel="noopener">보기</a></td>'
+        f"</tr>"
     )
 
 
-def _stats(articles: list[Article]) -> str:
-    groups: dict[int, list[Article]] = {}
-    for a in articles:
-        groups.setdefault(a.pyeong_group, []).append(a)
+def _card(complex_name: str, sections: list[TradeSection], index: int) -> str:
+    trades = [s.trade_type for s in sections]
+    rows: list[str] = []
+    groups: set[int] = set()
+    gone_data: dict[str, list[dict]] = {}
 
-    cells = [f'<div class="stat"><div class="k">전체</div>'
-             f'<div class="v">{len(articles)}건</div></div>']
-    for group in sorted(groups):
-        prices = [a.price for a in groups[group] if a.price > 0]
-        span = f"{fmt_price(min(prices))}~{fmt_price(max(prices))}" if prices else "-"
-        cells.append(
-            f'<div class="stat"><div class="k">{group}평대 · {len(groups[group])}건</div>'
-            f'<div class="v">{span}</div></div>'
-        )
-    return f'<div class="stats">{"".join(cells)}</div>'
+    for section in sections:
+        new_ids = {a.article_number for a in section.diff.new}
+        changed = {c.article.article_number: c.old_price for c in section.diff.changed}
+        for a in sorted(section.articles, key=lambda x: (x.pyeong_group, x.price)):
+            groups.add(a.pyeong_group)
+            if a.article_number in new_ids:
+                rows.append(_row(a, "new", 0))
+            elif a.article_number in changed:
+                rows.append(_row(a, "changed", changed[a.article_number]))
+            else:
+                rows.append(_row(a, "", 0))
 
+        gone_data[section.trade_type] = [
+            {
+                "group": a.pyeong_group,
+                "label": f"{a.dong}동 {a.floor}층 {fmt_price(a.price)}",
+            }
+            for a in section.diff.gone
+        ]
 
-def _section(complex_name: str, section: TradeSection, table_id: str) -> str:
-    articles = sorted(section.articles, key=lambda a: (a.pyeong_group, a.price))
-    new_ids = {a.article_number for a in section.diff.new}
-    changed = {c.article.article_number: c.old_price for c in section.diff.changed}
-
-    if not articles:
-        return (f'<div class="card"><div class="chead"><h2>{_esc(complex_name)}</h2>'
-                f'<span class="sub">{_esc(section.trade_type)}</span></div>'
-                f'<p class="empty">조건에 맞는 매물이 없습니다.</p></div>')
-
-    rows = []
-    for a in articles:
-        if a.article_number in new_ids:
-            rows.append(_row(a, "new", 0))
-        elif a.article_number in changed:
-            rows.append(_row(a, "changed", changed[a.article_number]))
-        else:
-            rows.append(_row(a, "", 0))
-
-    groups = sorted({a.pyeong_group for a in articles})
-    buttons = ['<button data-filter="all" aria-pressed="true">전체</button>']
-    buttons += [f'<button data-filter="{g}" aria-pressed="false">{g}평대</button>'
-                for g in groups]
-    buttons.append('<button data-filter="changed" aria-pressed="false">신규·변동만</button>')
-
-    gone = ""
-    if section.diff.gone:
-        names = ", ".join(
-            f"{_esc(a.dong)}동 {_esc(a.floor)}층 {fmt_price(a.price)}"
-            for a in section.diff.gone[:8]
-        )
-        more = f" 외 {len(section.diff.gone) - 8}건" if len(section.diff.gone) > 8 else ""
-        gone = f'<p class="gone">❌ 소진 {len(section.diff.gone)}건 — {names}{more}</p>'
+    trade_btns = "".join(
+        f'<button data-trade-btn="{_esc(t)}" aria-pressed="{"true" if i == 0 else "false"}">'
+        f"{_esc(t)}</button>"
+        for i, t in enumerate(trades)
+    )
+    group_btns = '<button data-group-btn="all" aria-pressed="true">전체</button>' + "".join(
+        f'<button data-group-btn="{g}" aria-pressed="false">{g}평대</button>'
+        for g in sorted(groups)
+    )
 
     headers = ["", "동", "층", "평형", "전용", "가격", "방향", "확인일", "중개사", "특징", ""]
+    default_trade = trades[0] if trades else ""
 
-    return f"""<div class="card">
-<div class="chead"><h2>{_esc(complex_name)}</h2><span class="sub">💰 {_esc(section.trade_type)}</span></div>
-{_stats(articles)}
-<div class="filters" data-target="{table_id}">{"".join(buttons)}</div>
-<div class="scroll"><table id="{table_id}">
+    return f"""<div class="card" data-default-trade="{_esc(default_trade)}">
+<div class="chead"><h2>{_esc(complex_name)}</h2></div>
+<div class="controls">
+  <div class="row"><span class="lbl">거래유형</span>{trade_btns}</div>
+  <div class="row"><span class="lbl">평형</span>{group_btns}</div>
+  <div class="row"><span class="lbl">보기</span>
+    <button data-changed-btn aria-pressed="false">신규·변동만</button></div>
+</div>
+<div class="stats"></div>
+<p class="empty" style="display:none">조건에 맞는 매물이 없습니다.</p>
+<div class="scroll"><table id="t{index}">
 <thead><tr>{"".join(f"<th>{h}</th>" for h in headers)}</tr></thead>
 <tbody>{"".join(rows)}</tbody>
 </table></div>
-{gone}
+<p class="gone" style="display:none"></p>
+<script type="application/json" class="gone-data">{json.dumps(gone_data, ensure_ascii=False)}</script>
 </div>"""
 
 
 def build(entries: list[tuple[str, list[TradeSection]]],
-          now: datetime | None = None) -> str:
-    """entries: [(단지명, [TradeSection, ...]), ...] → 완결된 HTML 문서."""
+          now: datetime | None = None, repo: str = "") -> str:
+    """entries: [(단지명, [TradeSection, ...]), ...] → 완결된 HTML 문서.
+
+    repo 를 주면 "지금 갱신" 버튼이 그 저장소의 Actions 실행 화면으로 연결된다.
+    정적 페이지는 네이버를 직접 호출할 수 없으므로(CORS + 세션 쿠키),
+    갱신은 Actions 를 돌려 docs/index.html 을 다시 커밋하는 방식이다.
+    """
     now = now or datetime.now()
     stamp = f"{now:%Y-%m-%d %H:%M} ({WEEKDAYS[now.weekday()]})"
 
-    cards = []
-    for i, (name, sections) in enumerate(entries):
-        for j, section in enumerate(sections):
-            cards.append(_section(name, section, f"t{i}_{j}"))
+    refresh = ""
+    if repo:
+        url = f"https://github.com/{repo}/actions/workflows/daily.yml"
+        refresh = (
+            f'<a class="refresh" href="{_esc(url)}" target="_blank" rel="noopener">'
+            f"🔄 지금 갱신</a>"
+        )
+
+    cards = [_card(name, sections, i) for i, (name, sections) in enumerate(entries)]
 
     total = sum(len(s.articles) for _, sections in entries for s in sections)
     new_total = sum(len(s.diff.new) for _, sections in entries for s in sections)
+    trades = sorted({s.trade_type for _, sections in entries for s in sections})
 
     return f"""<!doctype html>
 <html lang="ko">
@@ -295,7 +404,7 @@ def build(entries: list[tuple[str, list[TradeSection]]],
 <button id="theme" type="button" aria-label="테마 전환">◐</button>
 <div class="wrap">
 <h1>🏠 부동산 모니터</h1>
-<p class="sub">{stamp} 기준 · 전체 {total}건 · 신규 {new_total}건</p>
+<p class="sub">{stamp} 기준 · {" · ".join(trades)} 전체 {total}건 · 신규 {new_total}건 {refresh}</p>
 {"".join(cards)}
 <footer>네이버 부동산 매물 정보를 하루 1회 수집합니다. 실제 거래 전 반드시 원문을 확인하세요.</footer>
 </div>

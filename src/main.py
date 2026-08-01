@@ -108,7 +108,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # HTML 대시보드는 항상 갱신한다 (전송 여부와 무관하게 최신 상태를 보고 싶으므로)
     HTML_PATH.parent.mkdir(parents=True, exist_ok=True)
-    HTML_PATH.write_text(htmlgen.build(entries), encoding="utf-8")
+    HTML_PATH.write_text(htmlgen.build(entries, repo=cfg.repo), encoding="utf-8")
     print(f"[생성] {HTML_PATH}", file=sys.stderr)
 
     if not args.no_save:
