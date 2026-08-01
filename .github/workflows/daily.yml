@@ -2,8 +2,15 @@ name: 부동산 일일 리포트
 
 on:
   schedule:
-    # UTC 00:00 = KST 09:00 (GitHub Actions cron은 5~30분 지연될 수 있음)
-    - cron: "0 0 * * *"
+    # 네이버 429 는 IP 단위이고 40분 넘게 지속된다. 같은 job 안에서 재시도해 봐야
+    # IP 가 그대로라 못 뚫는다 → 하루 3번 시도해 **매번 다른 러너 IP** 를 받는다.
+    # 한 번 성공하면 --skip-if-done 으로 나머지는 즉시 종료한다(중복 알림 없음).
+    #
+    # 정각은 전 세계 워크플로가 몰려 러너 IP 오염이 심하므로 어중간한 분을 쓴다.
+    # (Actions cron 은 5~30분 지연될 수 있다)
+    - cron: "37 23 * * *"   # KST 08:37
+    - cron: "23 3 * * *"    # KST 12:23
+    - cron: "51 10 * * *"   # KST 19:51
   workflow_dispatch:
 
 permissions:
@@ -16,7 +23,8 @@ concurrency:
 jobs:
   report:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # 429 재시도 예산(naver.RETRY_BUDGET, 8분) + 수집 시간을 넉넉히 덮는다
+    timeout-minutes: 25
 
     steps:
       - uses: actions/checkout@v4
@@ -32,9 +40,16 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python -m src.main
+        # 예약 실행은 오늘 이미 성공했으면 즉시 종료한다.
+        # 수동 실행("지금 갱신")은 언제나 새로 수집한다.
+        run: >-
+          python -m src.main
+          ${{ github.event_name == 'schedule' && '--skip-if-done' || '' }}
 
+      # 실패해도 돌려야 한다 — 실패 알림 기록(data/state.json)이 커밋돼야
+      # 오늘 남은 예약 실행이 같은 알림을 또 보내지 않는다.
       - name: 스냅샷 · 대시보드 커밋
+        if: always()
         run: |
           git add data/ docs/
           if git diff --cached --quiet; then
