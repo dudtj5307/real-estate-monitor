@@ -66,6 +66,12 @@ h2{font-size:1.15rem;margin:0;letter-spacing:-.01em}
 .row button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);
   color:#fff;font-weight:600}
 .row button:disabled{opacity:.38;cursor:not-allowed}
+.row input[type="number"]{font:inherit;font-size:.8125rem;width:74px;padding:5px 8px;
+  border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--fg);
+  text-align:right;font-variant-numeric:tabular-nums}
+.row input[type="number"]:focus{outline:2px solid var(--accent);outline-offset:-1px}
+.row .unit{font-size:.8125rem;color:var(--muted)}
+.row .tilde{color:var(--muted)}
 .stats{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px}
 .stat{background:var(--chip);border-radius:10px;padding:10px 14px;min-width:126px}
 .stat .k{font-size:.75rem;color:var(--muted)}
@@ -121,11 +127,23 @@ function setupCard(card){
   var rows  = Array.prototype.slice.call(table.tBodies[0].rows);
   var state = { trade: card.dataset.defaultTrade, group: 'all', onlyChanged: false };
   var goneData = JSON.parse(card.querySelector('.gone-data').textContent);
+  var minInput = card.querySelector('[data-price-min]');
+  var maxInput = card.querySelector('[data-price-max]');
+
+  // 입력은 억 단위, 내부 비교는 만원 단위
+  function bound(input){
+    var v = parseNum(input.value);
+    return v === null ? null : v * 10000;
+  }
 
   function matches(row){
     if(row.dataset.trade !== state.trade) return false;
     if(state.group !== 'all' && row.dataset.group !== state.group) return false;
     if(state.onlyChanged && !row.dataset.state) return false;
+    var lo = bound(minInput), hi = bound(maxInput);
+    var p = parseNum(row.dataset.price);
+    if(lo !== null && (p === null || p < lo)) return false;
+    if(hi !== null && (p === null || p > hi)) return false;
     return true;
   }
 
@@ -137,10 +155,15 @@ function setupCard(card){
       if(ok) shown.push(row);
     });
 
-    // 현재 거래유형에 존재하는 평형대만 활성화
+    // 현재 거래유형 + 금액대 안에 실제로 존재하는 평형대만 활성화
     var groupsHere = {};
+    var lo = bound(minInput), hi = bound(maxInput);
     rows.forEach(function(r){
-      if(r.dataset.trade === state.trade) groupsHere[r.dataset.group] = true;
+      if(r.dataset.trade !== state.trade) return;
+      var p = parseNum(r.dataset.price);
+      if(lo !== null && (p === null || p < lo)) return;
+      if(hi !== null && (p === null || p > hi)) return;
+      groupsHere[r.dataset.group] = true;
     });
     card.querySelectorAll('[data-group-btn]').forEach(function(b){
       var g = b.dataset.groupBtn;
@@ -214,6 +237,15 @@ function setupCard(card){
   chg.addEventListener('click', function(){
     state.onlyChanged = !state.onlyChanged;
     chg.setAttribute('aria-pressed', String(state.onlyChanged));
+    render();
+  });
+
+  [minInput, maxInput].forEach(function(input){
+    input.addEventListener('input', render);
+  });
+  card.querySelector('[data-price-reset]').addEventListener('click', function(){
+    minInput.value = '';
+    maxInput.value = '';
     render();
   });
 
@@ -308,7 +340,16 @@ def _row(article: Article, state: str, old_price: int) -> str:
     )
 
 
-def _card(complex_name: str, sections: list[TradeSection], index: int) -> str:
+def _eok(manwon: int | None) -> str:
+    """만원 → 억 단위 입력값 문자열. None이면 빈 문자열."""
+    if manwon is None:
+        return ""
+    value = manwon / 10000
+    return f"{value:g}"
+
+
+def _card(complex_name: str, sections: list[TradeSection], index: int,
+          price_focus: tuple[int | None, int | None] = (None, None)) -> str:
     trades = [s.trade_type for s in sections]
     rows: list[str] = []
     groups: set[int] = set()
@@ -352,6 +393,14 @@ def _card(complex_name: str, sections: list[TradeSection], index: int) -> str:
 <div class="controls">
   <div class="row"><span class="lbl">거래유형</span>{trade_btns}</div>
   <div class="row"><span class="lbl">평형</span>{group_btns}</div>
+  <div class="row"><span class="lbl">금액대</span>
+    <input type="number" data-price-min step="0.1" min="0" inputmode="decimal"
+           value="{_eok(price_focus[0])}" aria-label="최소 금액(억)">
+    <span class="tilde">~</span>
+    <input type="number" data-price-max step="0.1" min="0" inputmode="decimal"
+           value="{_eok(price_focus[1])}" aria-label="최대 금액(억)">
+    <span class="unit">억</span>
+    <button data-price-reset>전체</button></div>
   <div class="row"><span class="lbl">보기</span>
     <button data-changed-btn aria-pressed="false">신규·변동만</button></div>
 </div>
@@ -367,7 +416,8 @@ def _card(complex_name: str, sections: list[TradeSection], index: int) -> str:
 
 
 def build(entries: list[tuple[str, list[TradeSection]]],
-          now: datetime | None = None, repo: str = "") -> str:
+          now: datetime | None = None, repo: str = "",
+          price_focus: tuple[int | None, int | None] = (None, None)) -> str:
     """entries: [(단지명, [TradeSection, ...]), ...] → 완결된 HTML 문서.
 
     repo 를 주면 "지금 갱신" 버튼이 그 저장소의 Actions 실행 화면으로 연결된다.
@@ -385,7 +435,8 @@ def build(entries: list[tuple[str, list[TradeSection]]],
             f"🔄 지금 갱신</a>"
         )
 
-    cards = [_card(name, sections, i) for i, (name, sections) in enumerate(entries)]
+    cards = [_card(name, sections, i, price_focus)
+             for i, (name, sections) in enumerate(entries)]
 
     total = sum(len(s.articles) for _, sections in entries for s in sections)
     new_total = sum(len(s.diff.new) for _, sections in entries for s in sections)

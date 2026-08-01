@@ -24,6 +24,8 @@ class ComplexConfig:
 class Config:
     chat_id: str
     repo: str = ""
+    # 대시보드 금액대 입력의 초기값 (만원). (min, max), 각각 None 가능
+    price_focus: tuple[int | None, int | None] = (None, None)
     complexes: list[ComplexConfig] = field(default_factory=list)
 
 
@@ -63,8 +65,14 @@ def load(path: str | Path) -> Config:
     # config.yaml 의 chat_id 는 로컬 편의용 폴백.
     chat_id = os.environ.get("TELEGRAM_CHAT_ID") or (raw.get("telegram") or {}).get("chat_id") or ""
 
+    site = raw.get("site") or {}
+    focus = site.get("price_focus") or [None, None]
+    if len(focus) != 2:
+        raise ValueError("site.price_focus 는 [최소, 최대] 두 값이어야 합니다 (만원 단위)")
+
     return Config(
         chat_id=str(chat_id),
-        repo=str((raw.get("site") or {}).get("repo") or ""),
+        repo=str(site.get("repo") or ""),
+        price_focus=(focus[0], focus[1]),
         complexes=complexes,
     )

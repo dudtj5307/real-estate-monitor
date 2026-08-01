@@ -23,6 +23,10 @@ site:
   # 비워두면 버튼이 표시되지 않습니다.
   repo: "dudtj5307/real-estate-monitor"
 
+  # 대시보드 금액대 입력칸의 기본값 (만원 단위). 페이지에서 언제든 바꿀 수 있습니다.
+  # null 이면 제한 없이 시작합니다.
+  price_focus: [90000, 110000]   # 9억 ~ 11억
+
 complexes:
   - name: 성복역현대홈타운
     number: "8692"
