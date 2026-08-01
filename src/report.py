@@ -8,6 +8,7 @@ from datetime import datetime
 
 from .diff import Diff
 from .naver import Article
+from .state import KST
 
 WEEKDAYS = ["월", "화", "수", "목", "금", "토", "일"]
 TELEGRAM_LIMIT = 4096
@@ -129,7 +130,8 @@ def build(complex_name: str, sections: list[TradeSection]) -> str:
 
 
 def header(now: datetime | None = None) -> str:
-    now = now or datetime.now()
+    # 러너는 UTC 라 datetime.now() 를 쓰면 KST 아침 실행이 '어제' 날짜로 찍힌다.
+    now = now or datetime.now(KST)
     return f"🏠 부동산 리포트 · {now:%Y-%m-%d} ({WEEKDAYS[now.weekday()]})"
 
 

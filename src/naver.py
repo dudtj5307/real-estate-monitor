@@ -19,9 +19,15 @@ import requests
 BASE = "https://fin.land.naver.com"
 ARTICLE_LIST_URL = f"{BASE}/front-api/v1/complex/article/list"
 
-UA = (
+# UA 는 실행마다 하나를 골라 쓴다. 이미 걸린 차단을 푸는 효과는 없지만
+# (DESIGN.md 1.5), 매 실행 같은 지문을 남기지 않는 정도의 값은 있다.
+USER_AGENTS = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+    "(KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36",
 )
 
 TRADE_TYPES = {
@@ -43,16 +49,22 @@ PAGE_DELAY = 25.0
 # 0.03초 만에 429 즉답 — 헤더·쿠키를 바꿔도 소용없다). 게다가 한 번 걸리면
 # **40분이 지나도 안 풀린다**(2026-08-01 실측, 5분 간격 43분 관측 내내 429).
 #
-# ⚠ 그래서 여기 재시도는 차단을 뚫는 수단이 아니다. 같은 job 은 IP 가 그대로라
-# 오래 기다려도 승산이 낮다. 차단 대응의 본체는 **하루 여러 번 예약 실행**으로
-# 매번 다른 러너 IP 를 받는 것이다(state.py / daily.yml).
-# 여기서는 순간적인 네트워크 오류와 짧은 스로틀만 흡수한다.
-RETRY_WAITS = (60.0, 180.0)
+# ⚠ 그래서 재시도는 차단을 뚫는 수단이 아니다. 실측 로그에서 러너는 **첫 요청부터**
+# 429 를 받았다 — 우리가 아무것도 하기 전에 이미 오염된 IP 였다는 뜻이고, 그 IP 는
+# job 이 끝날 때까지 안 풀린다. 거기서 8분을 재시도로 태우면 성공률은 그대로인 채
+# 차단된 IP 만 계속 두드리게 된다.
+#
+# 그래서 상황을 둘로 나눈다.
+#   ① 이 실행에서 아직 한 번도 성공하지 못했다 → 러너 IP 자체가 막힌 것이다.
+#      재시도하지 않고 즉시 포기(IPBlocked). 남은 예약 실행이 다른 IP 로 받는다.
+#   ② 앞 단지는 됐는데 다음 요청이 막혔다 → 우리 호출 속도 탓일 수 있다.
+#      이때만 짧게 쉬었다 재시도한다.
+RETRY_WAITS = (45.0, 120.0)
 RETRY_JITTER = 0.15  # ±15% — 여러 실행이 같은 시각에 몰리지 않게
 
 # 재시도에 쓸 수 있는 전체 시간. 단지마다 재시도를 다 쓰면 실행 시간이 단지 수에
 # 비례해 늘어나 워크플로 timeout-minutes 를 넘긴다. 그래서 예산을 공유한다.
-RETRY_BUDGET = 8 * 60.0
+RETRY_BUDGET = 4 * 60.0
 
 
 class NaverError(RuntimeError):
@@ -61,6 +73,14 @@ class NaverError(RuntimeError):
 
 class RateLimited(NaverError):
     """429. 재시도로 풀릴 수 있는 일시적 차단."""
+
+
+class IPBlocked(RateLimited):
+    """이 실행의 첫 요청부터 막혔다 = 실행 IP 가 통째로 차단된 상태.
+
+    나머지 단지를 시도해 봐야 같은 IP 라 똑같이 막힌다. 호출자는 이걸 받으면
+    남은 단지를 건너뛰고 실행을 끝내야 한다 (main.py).
+    """
 
 
 # 차단은 429 로만 오지 않는다. 실측: 같은 차단 상태에서 curl 은 429 즉답을 받는데
@@ -167,6 +187,10 @@ class NaverClient:
         self.retry_waits = retry_waits
         # 모든 단지가 나눠 쓰는 재시도 예산 (초). 남은 시간이 모자라면 재시도하지 않는다.
         self.retry_left = retry_budget
+        # 이 실행에서 매물 API 가 정상 응답한 횟수. 0 이면 IP 차단으로 보고
+        # 재시도 없이 즉시 포기한다 (아래 RETRY_WAITS 주석 ①).
+        self.ok_count = 0
+        self.user_agent = random.choice(USER_AGENTS)
         self.session: requests.Session = None  # type: ignore[assignment]
         self._new_session()
 
@@ -174,8 +198,9 @@ class NaverClient:
         """쿠키를 버리고 세션을 새로 만든다. 429 재시도 전에 호출한다."""
         self.session = requests.Session()
         self.session.headers.update({
-            "User-Agent": UA,
+            "User-Agent": self.user_agent,
             "Accept-Language": "ko-KR,ko;q=0.9",
+            "Accept-Encoding": "gzip, deflate, br",
         })
 
     def _warmup(self, complex_number: str) -> None:
@@ -213,6 +238,7 @@ class NaverClient:
                 "sec-fetch-site": "same-origin",
                 "sec-fetch-mode": "cors",
                 "sec-fetch-dest": "empty",
+                "priority": "u=1, i",
             },
             timeout=20,
         )
@@ -224,20 +250,28 @@ class NaverClient:
         data = res.json()
         if not data.get("isSuccess", True):
             raise NaverError(f"API 오류: {data.get('detailCode')} {data.get('message')}")
+
+        # 매물 API 가 한 번이라도 정상 응답했다 = 이 IP 는 차단 상태가 아니다.
+        # 이후의 429 는 IP 차단이 아니라 우리 호출 속도 문제로 본다 (fetch 참고).
+        self.ok_count += 1
         return data.get("result") or {}
 
     def fetch(self, complex_number: str, trade_types: list[str]) -> list[Article]:
-        """한 단지의 매물을 가져온다. 429 면 세션을 새로 만들어 재시도한다.
+        """한 단지의 매물을 가져온다.
 
-        429 는 세션이 아니라 IP 에 걸리므로 짧은 재시도는 의미가 없다.
-        간격을 분 단위로 벌리고, 그래도 안 풀리면 호출자에게 넘긴다.
+        아직 이 실행에서 한 건도 못 받아왔다면 재시도하지 않는다 — 러너 IP 가
+        통째로 막힌 상태이므로 기다려도 같은 IP 로는 안 풀린다(IPBlocked).
+        앞 단지가 성공한 뒤의 429 는 우리 호출 속도 탓일 수 있어 짧게 재시도한다.
         """
         last: Exception | None = None
         tried = 0
 
-        for attempt in range(len(self.retry_waits) + 1):
+        # 첫 성공 전에는 재시도하지 않는다 (위 주석 ①)
+        waits = self.retry_waits if self.ok_count else ()
+
+        for attempt in range(len(waits) + 1):
             if attempt:
-                wait = self.retry_waits[attempt - 1]
+                wait = waits[attempt - 1]
                 wait *= 1.0 + random.uniform(-RETRY_JITTER, RETRY_JITTER)
                 if wait > self.retry_left:
                     print(
@@ -247,7 +281,7 @@ class NaverClient:
                     break
                 print(
                     f"[대기] 차단 추정({type(last).__name__}) — "
-                    f"{wait / 60:.1f}분 후 재시도 ({attempt}/{len(self.retry_waits)})",
+                    f"{wait / 60:.1f}분 후 재시도 ({attempt}/{len(waits)})",
                     file=sys.stderr, flush=True,
                 )
                 time.sleep(wait)
@@ -261,6 +295,13 @@ class NaverClient:
                 last = exc
                 print(f"[실패] {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
 
+        if self.ok_count == 0:
+            # 이 실행의 첫 요청부터 막혔다 = 러너 IP 가 이미 차단된 상태.
+            # 나머지 단지도 볼 것 없이 끝내고, 다음 예약 실행의 새 IP 에 맡긴다.
+            raise IPBlocked(
+                f"첫 요청부터 차단됨({type(last).__name__}) — 실행 IP 가 이미 "
+                f"네이버에 막혀 있습니다. 재시도해도 같은 IP 라 풀리지 않습니다"
+            ) from last
         if isinstance(last, RateLimited):
             raise RateLimited(
                 f"429 Too Many Requests — 재시도 {tried}회 후에도 차단 "

@@ -12,6 +12,7 @@ from datetime import datetime
 
 from .naver import Article
 from .report import TradeSection, fmt_delta, fmt_price
+from .state import KST
 
 WEEKDAYS = ["월", "화", "수", "목", "금", "토", "일"]
 
@@ -472,7 +473,8 @@ def build(entries: list[tuple[str, list[TradeSection]]],
     정적 페이지는 네이버를 직접 호출할 수 없으므로(CORS + 세션 쿠키),
     갱신은 Actions 를 돌려 docs/index.html 을 다시 커밋하는 방식이다.
     """
-    now = now or datetime.now()
+    # 러너는 UTC 라 KST 로 고정한다. 안 하면 '갱신 09:37' 이 '00:37' 로 찍힌다.
+    now = now or datetime.now(KST)
     stamp = f"{now:%Y-%m-%d %H:%M} ({WEEKDAYS[now.weekday()]})"
 
     refresh = ""
