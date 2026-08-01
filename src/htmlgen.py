@@ -55,8 +55,21 @@ h1{font-size:1.5rem;margin:0 0 4px;letter-spacing:-.02em}
 h2{font-size:1.15rem;margin:0;letter-spacing:-.01em}
 .card{background:var(--card);border:1px solid var(--line);border-radius:14px;
   padding:20px;margin-bottom:22px}
+/* 단지 카드는 <details> — 제목줄(summary)을 눌러 접었다 폈다 한다 */
 .chead{display:flex;flex-wrap:wrap;gap:10px;align-items:baseline;
-  justify-content:space-between;margin-bottom:14px}
+  justify-content:space-between;margin-bottom:14px;
+  cursor:pointer;list-style:none;user-select:none}
+.chead::-webkit-details-marker{display:none}
+.chead:hover h2{color:var(--accent)}
+.chead h2::before{content:"▸";display:inline-block;width:1em;margin-right:2px;
+  color:var(--muted);font-size:.9em}
+.card[open] > .chead h2::before{content:"▾"}
+.card:not([open]) > .chead{margin-bottom:0}
+.csum{color:var(--muted);font-size:.8125rem;font-variant-numeric:tabular-nums}
+.foldall{font:inherit;font-size:.8125rem;padding:3px 11px;border-radius:999px;
+  background:var(--chip);border:1px solid var(--line);color:var(--accent);
+  font-weight:600;cursor:pointer;margin-left:8px}
+.foldall:hover{border-color:var(--accent)}
 .controls{display:flex;flex-direction:column;gap:8px;margin-bottom:14px}
 .row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .row .lbl{font-size:.75rem;color:var(--muted);min-width:52px}
@@ -195,6 +208,14 @@ function setupCard(card){
              '</div><div class="v">' + c[1] + '</div></div>';
     }).join('');
 
+    // 접었을 때도 보이는 한 줄 요약
+    var sum = state.trade + ' ' + shown.length + '건';
+    if(prices.length) sum += ' · ' + fmtPrice(Math.min.apply(null, prices)) +
+                             '~' + fmtPrice(Math.max.apply(null, prices));
+    if(newN) sum += ' · 신규 ' + newN;
+    if(chgN) sum += ' · 변동 ' + chgN;
+    card.querySelector('.csum').textContent = sum;
+
     card.querySelector('.empty').style.display = shown.length ? 'none' : 'block';
     card.querySelector('.scroll').style.display = shown.length ? '' : 'none';
 
@@ -266,10 +287,36 @@ function setupCard(card){
     });
   });
 
+  // 단지별 접힘 상태를 기억한다 (기본은 펼침)
+  var foldKey = 'fold:' + card.dataset.key;
+  try { if(localStorage.getItem(foldKey) === '1') card.open = false; } catch(e) {}
+  card.addEventListener('toggle', function(){
+    try { localStorage.setItem(foldKey, card.open ? '0' : '1'); } catch(e) {}
+    syncFoldAll();
+  });
+
   render();
 }
 
-document.querySelectorAll('.card').forEach(setupCard);
+var cards = Array.prototype.slice.call(document.querySelectorAll('.card'));
+var foldAllBtn = document.getElementById('foldall');
+
+function syncFoldAll(){
+  if(!foldAllBtn) return;
+  var anyOpen = cards.some(function(c){ return c.open; });
+  foldAllBtn.textContent = anyOpen ? '전체 접기' : '전체 펼치기';
+  foldAllBtn.dataset.action = anyOpen ? 'close' : 'open';
+}
+
+if(foldAllBtn){
+  foldAllBtn.addEventListener('click', function(){
+    var open = foldAllBtn.dataset.action === 'open';
+    cards.forEach(function(c){ c.open = open; });
+  });
+}
+
+cards.forEach(setupCard);
+syncFoldAll();
 
 var root = document.documentElement;
 var themeBtn = document.getElementById('theme');
@@ -388,8 +435,9 @@ def _card(complex_name: str, sections: list[TradeSection], index: int,
     headers = ["", "동", "층", "평형", "전용", "가격", "방향", "확인일", "중개사", "특징", ""]
     default_trade = trades[0] if trades else ""
 
-    return f"""<div class="card" data-default-trade="{_esc(default_trade)}">
-<div class="chead"><h2>{_esc(complex_name)}</h2></div>
+    return f"""<details class="card" data-default-trade="{_esc(default_trade)}"
+ data-key="{_esc(complex_name)}" open>
+<summary class="chead"><h2>{_esc(complex_name)}</h2><span class="csum"></span></summary>
 <div class="controls">
   <div class="row"><span class="lbl">거래유형</span>{trade_btns}</div>
   <div class="row"><span class="lbl">평형</span>{group_btns}</div>
@@ -412,7 +460,7 @@ def _card(complex_name: str, sections: list[TradeSection], index: int,
 </table></div>
 <p class="gone" style="display:none"></p>
 <script type="application/json" class="gone-data">{json.dumps(gone_data, ensure_ascii=False)}</script>
-</div>"""
+</details>"""
 
 
 def build(entries: list[tuple[str, list[TradeSection]]],
@@ -438,6 +486,10 @@ def build(entries: list[tuple[str, list[TradeSection]]],
     cards = [_card(name, sections, i, price_focus)
              for i, (name, sections) in enumerate(entries)]
 
+    # 단지가 둘 이상일 때만 전체 접기/펼치기 버튼을 붙인다
+    fold_all = ('<button id="foldall" class="foldall" type="button">전체 접기</button>'
+                if len(entries) > 1 else "")
+
     total = sum(len(s.articles) for _, sections in entries for s in sections)
     new_total = sum(len(s.diff.new) for _, sections in entries for s in sections)
     trades = sorted({s.trade_type for _, sections in entries for s in sections})
@@ -455,7 +507,7 @@ def build(entries: list[tuple[str, list[TradeSection]]],
 <button id="theme" type="button" aria-label="테마 전환">◐</button>
 <div class="wrap">
 <h1>🏠 부동산 모니터</h1>
-<p class="sub">{stamp} 기준 · {" · ".join(trades)} 전체 {total}건 · 신규 {new_total}건 {refresh}</p>
+<p class="sub">{stamp} 기준 · {" · ".join(trades)} 전체 {total}건 · 신규 {new_total}건 {refresh}{fold_all}</p>
 {"".join(cards)}
 <footer>네이버 부동산 매물 정보를 하루 1회 수집합니다. 실제 거래 전 반드시 원문을 확인하세요.</footer>
 </div>

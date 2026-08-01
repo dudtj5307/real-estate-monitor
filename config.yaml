@@ -31,6 +31,9 @@ complexes:
   - name: 성복역현대홈타운
     number: "8692"
 
+  - name: 성복역아이파크
+    number: "3707"
+
   # 단지별로 defaults 를 덮어쓸 수 있습니다
   # - name: 다른단지
   #   number: "12345"
