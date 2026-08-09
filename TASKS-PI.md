@@ -474,7 +474,18 @@ url = f"https://github.com/{repo}/actions/workflows/daily.yml"
 
 ---
 
-## T7 — 집 IP 전제로 문구·정책 수정 `src/naver.py`, `src/main.py`
+## T7 — 집 IP 전제로 문구·정책 수정 `src/naver.py`, `src/main.py` ✅ 완료
+
+> **구현 결과 — 표에 없던 곳도 고쳤습니다**
+> - `diff.py:20` — "하루에 여러 번 실행한다(러너 IP 차단 회피)". 여러 번 실행하는
+>   것은 여전히 맞지만 **이유가 바뀌었습니다**(요청 2회 + 버튼 + 폴백).
+> - `report.py:145`, `htmlgen.py:495` — "러너는 UTC 라". 이제 평상시 실행 주체는
+>   KST 인 Pi 이고 UTC 인 것은 폴백 러너뿐이라, 그 조건을 명시했습니다.
+> - `main.py` 실패 알림에 **며칠 연속 차단** 안내를 새로 넣었습니다. 러너 시절엔
+>   없던 상황이고, 사용자가 할 수 있는 일(단지 수 줄이기 · 며칠 쉬기)이 다릅니다.
+>   호출 간격은 실측 하한이라 늘려도 이득이 크지 않다는 점도 함께 적었습니다.
+>
+> `src/` 에 남은 "러너" 는 전부 watchdog 폴백을 가리키는 것들입니다 (의도적).
 
 **목적.** 재시도·안내 문구가 "러너 IP 가 매번 바뀐다"는 옛 전제로 쓰여 있습니다.
 집 IP 는 안 바뀌므로 **거짓말이 됩니다.** 로직은 대부분 그대로 두고 문구를 고칩니다.
@@ -501,9 +512,10 @@ url = f"https://github.com/{repo}/actions/workflows/daily.yml"
 
 **수용 기준**
 
-- [ ] `grep -rn "러너" src/` 결과가 폴백 맥락(watchdog) 외에는 없다
-- [ ] `python tests/test_retry.py && python tests/test_state.py` 통과
-- [ ] 로직 변경 없음 — diff 가 주석·문자열에 국한 (재시도 상수 포함 동작 불변)
+- [x] `grep -rn "러너" src/` 결과가 폴백 맥락(watchdog) 외에는 없다
+- [x] `python tests/test_retry.py && python tests/test_state.py` 통과
+      (`test_diff` · `test_outbox` 도 함께 확인)
+- [x] 로직 변경 없음 — diff 가 주석·독스트링·문자열에 국한 (재시도 상수 불변)
 
 ---
 

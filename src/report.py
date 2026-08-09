@@ -142,7 +142,8 @@ def build(complex_name: str, sections: list[TradeSection]) -> str:
 
 
 def header(now: datetime | None = None) -> str:
-    # 러너는 UTC 라 datetime.now() 를 쓰면 KST 아침 실행이 '어제' 날짜로 찍힌다.
+    # 폴백이 도는 러너는 UTC 다. datetime.now() 를 쓰면 KST 아침 실행이 '어제'
+    # 날짜로 찍히고, Pi(KST)와 러너가 서로 다른 날짜를 적게 된다.
     now = now or datetime.now(KST)
     return f"🏠 부동산 리포트 · {now:%Y-%m-%d} ({WEEKDAYS[now.weekday()]})"
 

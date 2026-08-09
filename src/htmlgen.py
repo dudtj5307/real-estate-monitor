@@ -492,7 +492,8 @@ def build(entries: list[tuple[str, list[TradeSection]]],
     Pi 가 2분 안에 감지 → 수집 → docs/index.html 을 다시 커밋 → Pages 반영.
     그래서 눌러도 즉시 바뀌지 않는다 (DESIGN-PI.md §2.4 — 최대 약 7분).
     """
-    # 러너는 UTC 라 KST 로 고정한다. 안 하면 '갱신 09:37' 이 '00:37' 로 찍힌다.
+    # 폴백이 도는 러너는 UTC 라 KST 로 고정한다. 안 하면 그날 대시보드만
+    # '갱신 09:37' 대신 '00:37' 로 찍혀 Pi 가 만든 날과 어긋나 보인다.
     now = now or datetime.now(KST)
     stamp = f"{now:%Y-%m-%d %H:%M} ({WEEKDAYS[now.weekday()]})"
 
