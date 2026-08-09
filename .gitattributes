@@ -1,0 +1,5 @@
+# Pi 에서 실행되는 파일은 CRLF 로 체크아웃되면 `#!/bin/bash\r` 이 되어
+# "bad interpreter" 로 죽는다. 개발 머신이 Windows 라 명시적으로 고정한다.
+*.sh      text eol=lf
+*.service text eol=lf
+*.timer   text eol=lf

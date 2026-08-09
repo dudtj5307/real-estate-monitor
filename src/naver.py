@@ -126,6 +126,20 @@ class Article:
         """가격 변동 판정용 키."""
         return (self.price, self.rent)
 
+    def location_key(self) -> tuple[str, str, str, int]:
+        """매물번호가 바뀌어도 같은 집임을 알아보기 위한 위치 키 (diff.py ② 참고).
+
+        articleNumber 는 중복 묶음의 '대표'라 대표가 바뀌면 같이 바뀐다.
+        위치는 그대로이므로 이걸로 다시 짝지어 재등록을 가격변동으로 판정한다.
+        전용면적은 부동소수 오차를 피해 ㎡ 를 100배 정수로 만든다.
+        """
+        return (self.trade_type, self.dong, self.floor,
+                round(self.exclusive_sqm * 100))
+
+    def has_location(self) -> bool:
+        """위치 키를 신뢰할 수 있는가. 한 칸이라도 비면 서로 다른 집이 뭉친다."""
+        return bool(self.dong and self.floor and self.exclusive_sqm)
+
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 

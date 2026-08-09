@@ -64,6 +64,15 @@ class TradeSection:
     trade_type: str
     articles: list[Article]
     diff: Diff
+    # diff 를 어느 날 값과 비교했는가. 빈 값이면 기준이 없다(첫 수집).
+    # 수집이 며칠 막히면 이게 '어제'가 아니라 며칠 전이 되므로 그대로 보여 준다.
+    baseline_date: str = ""
+
+
+def basis(baseline_date: str) -> str:
+    if not baseline_date:
+        return "첫 수집 — 전건 신규"
+    return f"{baseline_date} 대비"
 
 
 def _pyeong_block(group: int, articles: list[Article], diff: Diff,
@@ -87,9 +96,12 @@ def _pyeong_block(group: int, articles: list[Article], diff: Diff,
             lines.append(f"     {a.feature[:60]}")
     for c in changed:
         delta = c.article.price - c.old_price
+        # 번호가 바뀐 재등록은 링크도 바뀌었다는 뜻이라 표시해 둔다
+        mark = " ↻" if c.renumbered else ""
         lines.append(
             f"  💸 {_loc(c.article)} · "
-            f"{fmt_price(c.old_price)} → {fmt_price(c.article.price)} ({fmt_delta(delta)})"
+            f"{fmt_price(c.old_price)} → {fmt_price(c.article.price)} "
+            f"({fmt_delta(delta)}){mark}"
         )
     if gone:
         lines.append(f"  ❌ 소진 {len(gone)}건")
@@ -110,7 +122,7 @@ def build(complex_name: str, sections: list[TradeSection]) -> str:
     lines = [f"━━ {complex_name} ━━"]
 
     for section in sections:
-        lines.append(f"💰 {section.trade_type}")
+        lines.append(f"💰 {section.trade_type}  ({basis(section.baseline_date)})")
 
         groups = _group_by_pyeong(section.articles)
         for group in sorted(groups):

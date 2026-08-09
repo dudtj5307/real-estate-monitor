@@ -2,9 +2,14 @@
 
     python -m src.main                  # 수집 → 리포트 → 텔레그램 전송
     python -m src.main --dry-run        # 전송하지 않고 콘솔에만 출력
+    python -m src.main --outbox         # 보내는 대신 data/outbox.json 에 적는다
     python -m src.main --no-save        # 스냅샷을 갱신하지 않음 (테스트용)
     python -m src.main --skip-if-done   # 오늘 이미 성공한 단지는 건너뜀
     python -m src.main --test-telegram  # 텔레그램 설정만 확인하고 종료
+
+전달 방식은 셋 중 하나이고 우선순위가 있다: --dry-run > --outbox > 직접 전송.
+라즈베리파이는 --outbox 로 돈다. 비밀값을 집 기기에 두지 않기 위해서이고,
+전송은 push 를 감지한 notify.yml 이 맡는다 (DESIGN-PI.md §5.4).
 
 종료 코드
     0  정상 (또는 오늘 할 일이 없어 건너뜀)
@@ -21,7 +26,7 @@ import time
 import traceback
 from pathlib import Path
 
-from . import filters, htmlgen, report
+from . import filters, htmlgen, outbox, report
 from .config import ComplexConfig, Config, load
 from .diff import Diff, Snapshot, compare
 from .naver import COMPLEX_DELAY, Article, IPBlocked, NaverClient, RateLimited
@@ -33,6 +38,7 @@ ROOT = Path(__file__).resolve().parent.parent
 CONFIG_PATH = ROOT / "config.yaml"
 SNAPSHOT_PATH = ROOT / "data" / "snapshot.json"
 STATE_PATH = ROOT / "data" / "state.json"
+OUTBOX_PATH = ROOT / "data" / "outbox.json"
 HTML_PATH = ROOT / "docs" / "index.html"
 
 EXIT_OK = 0
@@ -41,29 +47,56 @@ EXIT_BLOCKED = 2
 
 
 def collect(client: NaverClient, cfg: ComplexConfig) -> dict[str, list[Article]]:
-    """거래유형별로 필터링된 매물 목록을 돌려준다."""
+    """거래유형별 매물 목록. **필터를 여기서 걸지 않는다.**
+
+    필터 통과분만 스냅샷에 남기면 경계를 넘나든 매물이 '가격변동'이 아니라
+    '소진 + 신규'로 오보된다 (DESIGN.md 2.0.1 — 10.8억 매물이 11.5억이 되면
+    price_max 밖으로 나가 스냅샷에서 사라진다). 좁히기는 비교가 끝난 뒤에 한다.
+    """
     articles = client.fetch(cfg.number, cfg.trade_types)
-    kept = filters.apply(articles, cfg)
 
     by_trade: dict[str, list[Article]] = {t: [] for t in cfg.trade_types}
-    for a in kept:
+    for a in articles:
         by_trade.setdefault(a.trade_type, []).append(a)
     return by_trade
+
+
+def _section(snapshot: Snapshot, cfg: ComplexConfig, trade_type: str,
+             articles: list[Article]) -> TradeSection:
+    """전체 매물을 기준과 비교한 뒤, 표시용으로만 설정 범위로 좁힌다."""
+    base = snapshot.baseline(cfg.number, trade_type)
+    diff = compare(articles, base.articles)
+
+    kept = filters.apply(articles, cfg)
+    ids = {a.article_number for a in kept}
+    return TradeSection(
+        trade_type=trade_type,
+        articles=kept,
+        diff=Diff(
+            new=[a for a in diff.new if a.article_number in ids],
+            changed=[c for c in diff.changed if c.article.article_number in ids],
+            gone=filters.apply(diff.gone, cfg),
+        ),
+        baseline_date=base.date,
+    )
 
 
 def _from_snapshot(snapshot: Snapshot, cfg: ComplexConfig) -> list[TradeSection]:
     """이미 오늘 수집한 단지를 스냅샷에서 되살린다.
 
     다시 부르지 않는 이유가 요청 수 절약이므로, 대시보드에서 그 단지가 사라지지
-    않게 저장된 값을 그대로 쓴다. 변동은 아침 리포트에서 이미 알렸으므로 비운다.
+    않게 저장된 값을 그대로 쓴다. 비교 기준은 날짜가 바뀔 때만 굴리므로
+    (diff.Snapshot) 오늘의 신규·변동 표시도 그대로 재현된다 — 텔레그램에는
+    이 단지를 다시 싣지 않으므로 중복 알림은 나가지 않는다.
     """
     return [
-        TradeSection(trade_type=t, articles=snapshot.get(cfg.number, t), diff=Diff())
+        _section(snapshot, cfg, t, snapshot.latest(cfg.number, t))
         for t in cfg.trade_types
     ]
 
 
-def _notify_failure(cfg: Config, state: State, errors: list[str], blocked: bool) -> None:
+def _notify_failure(cfg: Config, state: State, errors: list[str], blocked: bool,
+                    use_outbox: bool = False) -> None:
     """수집이 전부 실패한 날의 알림. 하루 한 번만 보낸다."""
     if not state.should_notify_failure():
         print("[알림 생략] 오늘 이미 실패를 알렸습니다", file=sys.stderr)
@@ -79,16 +112,27 @@ def _notify_failure(cfg: Config, state: State, errors: list[str], blocked: bool)
             "계속되면 로컬 작업 스케줄러(scripts/run_daily.ps1)로 옮기세요.",
         ]
     try:
-        Telegram(cfg.chat_id).send("\n".join(parts))
-    except TelegramError as exc:
+        if use_outbox:
+            # 실패 알림도 같은 경로를 탄다. Pi 에는 토큰이 없다.
+            path = outbox.write(OUTBOX_PATH, "failure", "\n".join(parts))
+            print(f"[대기] 실패 알림을 {path} 에 적었습니다", file=sys.stderr)
+        else:
+            Telegram(cfg.chat_id).send("\n".join(parts))
+    except (TelegramError, OSError) as exc:
         print(f"[오류] 실패 알림도 못 보냈습니다: {exc}", file=sys.stderr)
         return
+    # 알림이 push 되지 못하면 state.json 도 함께 남지 않는다. 다음 실행이
+    # reset --hard 로 되돌아가 같은 알림을 다시 시도하므로 어긋나지 않는다.
     state.mark_failure_notified()
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="네이버 부동산 → 텔레그램 리포트")
     parser.add_argument("--dry-run", action="store_true", help="전송하지 않고 콘솔 출력")
+    parser.add_argument(
+        "--outbox", action="store_true",
+        help="전송하지 않고 data/outbox.json 에 적는다 (GitHub Actions 가 보낸다)",
+    )
     parser.add_argument("--no-save", action="store_true", help="스냅샷을 갱신하지 않음")
     parser.add_argument("--config", default=str(CONFIG_PATH))
     parser.add_argument(
@@ -106,7 +150,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.test_telegram:
         return EXIT_OK if telegram.test() else EXIT_ERROR
-    if not args.dry_run:
+    # --outbox 는 애초에 토큰을 기대하지 않는다 (전송은 Actions 가 한다).
+    if not args.dry_run and not args.outbox:
         # 미설정이면 리포트가 콘솔로만 나가고 조용히 끝난다. 먼저 크게 경고한다.
         telegram.warn_if_disabled()
 
@@ -116,7 +161,6 @@ def main(argv: list[str] | None = None) -> int:
         return EXIT_OK
 
     snapshot = Snapshot(SNAPSHOT_PATH)
-    first_run = not snapshot.exists()
     client = NaverClient()
 
     blocks: list[str] = []
@@ -164,14 +208,8 @@ def main(argv: list[str] | None = None) -> int:
         sections: list[TradeSection] = []
         for trade_type in complex_cfg.trade_types:
             current = by_trade.get(trade_type, [])
-            previous = snapshot.get(complex_cfg.number, trade_type)
-            sections.append(
-                TradeSection(
-                    trade_type=trade_type,
-                    articles=current,
-                    diff=compare(current, previous),
-                )
-            )
+            # 비교가 먼저다 — set() 이 기준을 굴려 버리므로 순서를 바꾸면 안 된다
+            sections.append(_section(snapshot, complex_cfg, trade_type, current))
             snapshot.set(complex_cfg.number, trade_type, current)
 
         blocks.append(report.build(complex_cfg.name, sections))
@@ -190,13 +228,12 @@ def main(argv: list[str] | None = None) -> int:
             return EXIT_OK
         # 429 로만 실패했다면(또는 IP 차단으로 조기 종료했다면) 차단 안내를 붙인다
         all_rate_limited = blocked or rate_limited == len(errors)
-        _notify_failure(cfg, state, errors, all_rate_limited)
+        _notify_failure(cfg, state, errors, all_rate_limited, use_outbox=args.outbox)
         return EXIT_BLOCKED if all_rate_limited else EXIT_ERROR
 
-    parts = [report.header()]
-    if first_run:
-        parts.append("(첫 실행 — 전체 매물을 신규로 표시합니다)")
-    parts.append("")
+    # '무엇과 비교한 결과인가'는 거래유형 줄마다 붙는다 (report.basis).
+    # 단지마다 마지막 성공일이 다를 수 있어 전역 문구로는 정확히 말할 수 없다.
+    parts = [report.header(), ""]
     parts.append("\n\n".join(blocks))
     if errors:
         parts.append("\n⚠️ 일부 단지 수집 실패:\n" + "\n".join(errors))
@@ -208,8 +245,14 @@ def main(argv: list[str] | None = None) -> int:
         print(text)
     else:
         try:
-            telegram.send_all(report.chunk(text))
-        except TelegramError as exc:
+            if args.outbox:
+                # 여기서 보내지 않는다. push 를 감지한 notify.yml 이 secret 으로 보낸다.
+                path = outbox.write(OUTBOX_PATH, "report", text)
+                print(f"[대기] 리포트를 {path} 에 적었습니다 — 전송은 Actions 가 합니다",
+                      file=sys.stderr)
+            else:
+                telegram.send_all(report.chunk(text))
+        except (TelegramError, OSError) as exc:
             # 전송 실패로 스냅샷·대시보드까지 날리지 않는다. 수집은 성공했으므로
             # 저장은 마치고, 종료 코드로 실패를 알린다.
             send_failed = str(exc)

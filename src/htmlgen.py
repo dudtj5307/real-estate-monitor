@@ -11,7 +11,7 @@ import json
 from datetime import datetime
 
 from .naver import Article
-from .report import TradeSection, fmt_delta, fmt_price
+from .report import TradeSection, basis, fmt_delta, fmt_price
 from .state import KST
 
 WEEKDAYS = ["월", "화", "수", "목", "금", "토", "일"]
@@ -71,6 +71,8 @@ h2{font-size:1.15rem;margin:0;letter-spacing:-.01em}
   background:var(--chip);border:1px solid var(--line);color:var(--accent);
   font-weight:600;cursor:pointer;margin-left:8px}
 .foldall:hover{border-color:var(--accent)}
+.basis{margin:0 0 12px;font-size:.8125rem;color:var(--muted)}
+.card:not([open]) > .basis{display:none}
 .controls{display:flex;flex-direction:column;gap:8px;margin-bottom:14px}
 .row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .row .lbl{font-size:.75rem;color:var(--muted);min-width:52px}
@@ -348,12 +350,16 @@ def _floor_sort(floor: str) -> float:
         return -1.0
 
 
-def _row(article: Article, state: str, old_price: int) -> str:
+def _row(article: Article, state: str, old_price: int, renumbered: bool = False) -> str:
     if state == "new":
         tag = '<span class="tag new">신규</span>'
     elif state == "changed":
         cls = "up" if article.price > old_price else "down"
-        tag = f'<span class="tag {cls}">{fmt_delta(article.price - old_price)}</span>'
+        # 번호가 바뀐 재등록이면 링크도 바뀌었다는 뜻이라 짚어 준다
+        note = " ↻" if renumbered else ""
+        title = ' title="매물번호가 바뀐 재등록으로 추정됩니다"' if renumbered else ""
+        tag = (f'<span class="tag {cls}"{title}>'
+               f'{fmt_delta(article.price - old_price)}{note}</span>')
     else:
         tag = ""
 
@@ -405,13 +411,14 @@ def _card(complex_name: str, sections: list[TradeSection], index: int,
 
     for section in sections:
         new_ids = {a.article_number for a in section.diff.new}
-        changed = {c.article.article_number: c.old_price for c in section.diff.changed}
+        changed = {c.article.article_number: c for c in section.diff.changed}
         for a in sorted(section.articles, key=lambda x: (x.pyeong_group, x.price)):
             groups.add(a.pyeong_group)
             if a.article_number in new_ids:
                 rows.append(_row(a, "new", 0))
             elif a.article_number in changed:
-                rows.append(_row(a, "changed", changed[a.article_number]))
+                c = changed[a.article_number]
+                rows.append(_row(a, "changed", c.old_price, c.renumbered))
             else:
                 rows.append(_row(a, "", 0))
 
@@ -436,9 +443,15 @@ def _card(complex_name: str, sections: list[TradeSection], index: int,
     headers = ["", "동", "층", "평형", "전용", "가격", "방향", "확인일", "중개사", "특징", ""]
     default_trade = trades[0] if trades else ""
 
+    # 신규·변동 배지가 '무엇과 비교한 결과'인지 밝힌다. 수집이 며칠 막히면
+    # 어제가 아니라 며칠 전이 기준이 되므로 그냥 '전일 대비'라고 쓸 수 없다.
+    bases = sorted({s.baseline_date for s in sections})
+    basis_line = " · ".join(basis(b) for b in bases)
+
     return f"""<details class="card" data-default-trade="{_esc(default_trade)}"
  data-key="{_esc(complex_name)}" open>
 <summary class="chead"><h2>{_esc(complex_name)}</h2><span class="csum"></span></summary>
+<p class="basis">📅 {_esc(basis_line)}</p>
 <div class="controls">
   <div class="row"><span class="lbl">거래유형</span>{trade_btns}</div>
   <div class="row"><span class="lbl">평형</span>{group_btns}</div>

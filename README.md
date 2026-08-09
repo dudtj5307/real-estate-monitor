@@ -230,7 +230,7 @@ Register-ScheduledTask -TaskName "부동산 일일 리포트" `
 (pytest 로도 돌아갑니다).
 
 ```bash
-python tests/test_retry.py && python tests/test_state.py
+python tests/test_retry.py && python tests/test_state.py && python tests/test_diff.py
 ```
 | — | `docs/index.html`은 두 옵션과 무관하게 항상 갱신됩니다 |
 | `--config PATH` | 다른 설정 파일 사용 |
@@ -240,6 +240,14 @@ python tests/test_retry.py && python tests/test_state.py
 ## 동작 참고
 
 - **첫 실행**은 비교 대상이 없으므로 전체 매물이 `🆕`로 표시됩니다. 정상입니다.
+  리포트와 대시보드가 "첫 수집 — 전건 신규"라고 밝혀 줍니다.
+- **신규·변동은 '직전 실행'이 아니라 '전일' 기준**입니다. 하루에 여러 번 돌려도
+  기준은 그대로라, 낮에 "지금 갱신"을 눌러도 아침에 본 변동이 사라지지 않습니다.
+  수집이 며칠 막혔다면 기준일도 그만큼 과거이므로, 화면에 **실제 기준일**을
+  표시합니다 (`📅 2026-08-08 대비`).
+- 중개사가 호가를 바꾸며 매물을 다시 올리면 매물번호가 바뀝니다. 같은 동·층·면적에
+  가격이 근접하면 **재등록(`↻`)으로 보고 가격변동으로 판정**합니다 — 번호만 보면
+  "소진 + 신규"가 되어 정작 알고 싶던 가격 변동이 묻히기 때문입니다.
 - 상태는 `data/snapshot.json` 하나에만 저장됩니다. DB가 필요 없고,
   git 히스토리가 그대로 **가격 시계열 기록**이 됩니다.
 - 네이버가 호출 빈도에 민감해 단지 간 25초, 워밍업 8초를 대기합니다.
