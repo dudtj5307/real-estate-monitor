@@ -71,10 +71,10 @@ Actions 예약(KST 08:30/12:30) ─┐
 
 ```
 T1  run.sh ✅ ─┐
-               ├─→ T3 systemd ─→ T8 설치 가이드 ─→ T9 문서 갱신
+               ├─→ T3 systemd ✅ ─→ T8 설치 가이드 ✅ ─→ T9 문서 갱신
 T2  poll.sh ✅ ┘                      ▲
 T12 notify.yml ✅ ────────────────────┤
-T4  refresh-request.yml ──────────────┤
+T4  refresh-request.yml ✅ ───────────┤
 T5  watchdog.yml (+daily.yml 제거) ───┘
 T6  버튼 링크          (T4 이후)
 T7  문구·정책 수정     (독립)
@@ -82,9 +82,12 @@ T10 (선택) 버튼 실행 텔레그램 억제   (T2 이후)
 T11 (향후) GPIO 웨이크              (전부 이후)
 ```
 
-남은 것 중 T4·T5·T7 은 서로 독립이라 **병렬로 진행 가능**합니다.
-T3·T8 은 T4 가 있어야 Pi 에서 실제로 확인할 수 있습니다 (폴링 대상이 없으면
-`poll.sh` 가 "실행 기록이 없다"만 찍습니다).
+남은 것은 **T5·T6·T7·T9** 이고 T5·T7 은 서로 독립이라 병렬로 진행 가능합니다.
+**T5 와 T6 은 반드시 같이 머지**하세요 — T5 가 `daily.yml` 을 지우는데 대시보드
+버튼(T6 이전)이 그 파일을 가리키고 있어 따로 머지하면 버튼이 404 가 됩니다.
+
+⚠️ T8(설치 가이드)은 watchdog 이 있다는 전제로 "Pi 가 죽어도 14:00 에 경보가
+온다"고 적어 두었습니다. **T5 가 머지되기 전에 Pi 를 설치하면 그 안전망이 없습니다.**
 
 ---
 
@@ -236,7 +239,20 @@ exec ./scripts/pi/run.sh "${flags[@]}"
 
 ---
 
-## T3 — systemd 유닛
+## T3 — systemd 유닛 ✅ 완료
+
+> **구현 결과 — 초안에서 바뀐 점**
+> - `StateDirectory=naver-monitor` 를 넣었습니다. systemd 가 `/var/lib/naver-monitor`
+>   를 `User=` 소유로 만들어 주므로 설치할 때 손으로 `mkdir` 할 필요가 없습니다
+>   (수동으로 `poll.sh` 를 먼저 돌려 보는 경우만 T8 에 남겨 뒀습니다).
+> - 타이머를 `OnUnitActiveSec` 이 아니라 **`OnUnitInactiveSec=2min`** 으로 했습니다.
+>   전자면 수집이 3분 걸렸을 때 밀린 폴링이 끝나자마자 곧바로 한 번 더 돕니다.
+> - `PrivateTmp=` 를 켜지 말라는 경고를 유닛에 적었습니다. `/tmp/naver-monitor.lock`
+>   이 서비스와 수동 실행 사이의 유일한 상호 배제 수단이라, 켜면 서로 다른 `/tmp` 를
+>   보게 돼 동시 수집이 가능해집니다.
+> - `Wants=time-sync.target` 은 뺐습니다. 기다려 주는 유닛을 끌어오지 못해 실질 효과가
+>   없습니다. 실제 완충은 타이머의 `OnBootSec=2min` 입니다.
+> - `SyslogIdentifier=naver-monitor` 추가 — `journalctl -t` 로 한 번에 봅니다.
 
 **목적.** 폴러를 2분마다 돌립니다.
 
@@ -290,13 +306,23 @@ WantedBy=timers.target
 
 **수용 기준**
 
-- [ ] `systemd-analyze verify` 통과 (Pi 에서 실행하는 항목이므로 리뷰로 갈음 가능)
-- [ ] 타이머가 부팅 후에도 자동 시작 (`WantedBy=timers.target`)
-- [ ] 비밀값을 요구하는 지시어가 없다 (`EnvironmentFile` 없음)
+- [x] `systemd-analyze verify` 통과 — Windows 라 실행 불가, 리뷰로 갈음.
+      **Pi 설치 시 `systemd-analyze verify` 로 한 번 확인할 것**
+- [x] 타이머가 부팅 후에도 자동 시작 (`WantedBy=timers.target`)
+- [x] 비밀값을 요구하는 지시어가 없다 (`EnvironmentFile` 없음)
 
 ---
 
-## T4 — 요청 발행 워크플로 `.github/workflows/refresh-request.yml`
+## T4 — 요청 발행 워크플로 `.github/workflows/refresh-request.yml` ✅ 완료
+
+> **구현 결과 — 초안에서 바뀐 점**
+> - 초안은 "`permissions:` 를 주지 말라"였지만 **`permissions: {}` 를 명시**했습니다.
+>   키를 생략하면 최소 권한이 아니라 **저장소 기본값(쓰기일 수 있음)을 물려받습니다.**
+>   빈 맵이라야 토큰에 아무 권한도 주지 않는다는 뜻이 됩니다.
+> - `${{ github.event_name }}` 를 `run:` 본문에 직접 넣지 않고 `env:` 를 거칩니다.
+>   이 값은 안전하지만, 워크플로에서 표현식을 셸에 직접 보간하는 습관을 남기지
+>   않으려는 것입니다.
+> - `timeout-minutes: 5` — 아무 일도 안 하는 job 이 러너 이슈로 6시간 매달리지 않게.
 
 **목적.** 갱신 요청을 발행합니다. **아무 일도 하지 않는 것이 정상입니다** —
 워크플로 실행 기록 자체가 Pi 에게 보내는 신호입니다.
@@ -345,10 +371,11 @@ jobs:
 
 **수용 기준**
 
-- [ ] 워크플로 파일명이 `refresh-request.yml` 이다 (T2·T6 과 일치)
-- [ ] `workflow_dispatch` 가 있어 Actions 화면에 `Run workflow` 버튼이 뜬다
-- [ ] cron 이 UTC 기준으로 KST 08:30 / 12:30 에 해당한다
-- [ ] 네이버·텔레그램을 호출하지 않는다
+- [x] 워크플로 파일명이 `refresh-request.yml` 이다 (T2 의 `WORKFLOW` 와 일치.
+      T6 은 아직 `daily.yml` 을 가리킨다)
+- [x] `workflow_dispatch` 가 있어 Actions 화면에 `Run workflow` 버튼이 뜬다
+- [x] cron 이 UTC 기준으로 KST 08:30 / 12:30 에 해당한다
+- [x] 네이버·텔레그램을 호출하지 않는다 (checkout 조차 없다)
 
 ---
 
@@ -461,7 +488,22 @@ url = f"https://github.com/{repo}/actions/workflows/daily.yml"
 
 ---
 
-## T8 — Pi 설치 가이드 `scripts/pi/README.md`
+## T8 — Pi 설치 가이드 `scripts/pi/README.md` ✅ 완료
+
+> **구현 결과 — 초안에서 추가된 것**
+> - **`ssh -T git@github.com` 을 배포 키 단계에 넣었습니다.** 서비스는 비대화식으로
+>   돌기 때문에 `known_hosts` 에 항목이 없으면 첫 push 가 확인 프롬프트에서 죽고,
+>   push 가 죽으면 그날 알림이 통째로 없습니다. `sudo` 로 하면 root 의 known_hosts
+>   에 들어가 소용없다는 점도 적었습니다.
+> - **첫 요청 확인 절차를 3단계로 풀어 썼습니다.** 폴러는 최초 1회 마커만 초기화하고
+>   수집하지 않으므로, `Run workflow` 를 **두 번** 눌러야 첫 수집이 돕니다. 안 적어
+>   두면 "설치했는데 안 돈다"로 오해합니다.
+> - venv 를 쓸 때 서비스에 `Environment=PATH=...` 가 필요하다는 주의. `run.sh`·
+>   `poll.sh` 가 `python3` 를 이름으로 부르기 때문입니다.
+> - `/var/lib/naver-monitor` 수동 생성은 "수동 실행을 먼저 해 볼 때만"으로 축소.
+>   평소에는 T3 의 `StateDirectory=` 가 만듭니다.
+> - ⚠️ 이 문서는 **T5(watchdog)가 있다는 전제**로 "Pi 가 죽어도 14:00 에 경보"라고
+>   적었습니다. T5 머지 전에는 그 안전망이 없습니다.
 
 **목적.** 사람이 Pi 앞에서 그대로 따라 할 수 있는 설치 문서.
 
@@ -500,10 +542,11 @@ url = f"https://github.com/{repo}/actions/workflows/daily.yml"
 
 **수용 기준**
 
-- [ ] 명령을 순서대로 복사해 실행하면 동작하는 상태가 된다
-- [ ] 각 단계에 "왜" 가 한 줄씩 붙어 있다
-- [ ] 비밀값을 Pi 에 넣으라는 단계가 없다
-- [ ] 텔레그램이 Actions 에서 나간다는 점과 확인 방법(Actions 탭)이 적혀 있다
+- [x] 명령을 순서대로 복사해 실행하면 동작하는 상태가 된다 (실기 검증은 Pi 에서)
+- [x] 각 단계에 "왜" 가 한 줄씩 붙어 있다
+- [x] 비밀값을 Pi 에 넣으라는 단계가 없다
+- [x] 텔레그램이 Actions 에서 나간다는 점과 확인 방법(Actions 탭)이 적혀 있다
+- [x] 집 IP 검증(§5)이 배포 키(§7)·systemd(§8)보다 앞에 있다
 
 ---
 
