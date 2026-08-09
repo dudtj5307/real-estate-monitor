@@ -16,6 +16,9 @@ class ComplexConfig:
     number: str
     trade_types: list[str]
     pyeong_groups: list[int]
+    # 전용면적(㎡) 범위. None 이면 제한 없음
+    area_min: float | None
+    area_max: float | None
     price_min: int | None
     price_max: int | None
 
@@ -32,9 +35,20 @@ class Config:
 _DEFAULTS: dict[str, Any] = {
     "trade_types": ["매매"],
     "pyeong_groups": [],
+    "area_min": None,
+    "area_max": None,
     "price_min": None,
     "price_max": None,
 }
+
+
+def _num(value: Any, key: str) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"config.yaml 의 {key} 는 숫자여야 합니다: {value!r}") from None
 
 
 def load(path: str | Path) -> Config:
@@ -53,6 +67,8 @@ def load(path: str | Path) -> Config:
                 number=str(merged["number"]),
                 trade_types=list(merged["trade_types"]),
                 pyeong_groups=list(merged["pyeong_groups"] or []),
+                area_min=_num(merged["area_min"], "area_min"),
+                area_max=_num(merged["area_max"], "area_max"),
                 price_min=merged["price_min"],
                 price_max=merged["price_max"],
             )

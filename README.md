@@ -98,6 +98,8 @@ python -m src.main --dry-run --no-save
 ```yaml
 defaults:
   trade_types: [매매]        # 매매 / 전세 / 월세 / 단기임대
+  area_min: 56              # 전용면적 ㎡ 하한. null 이면 제한 없음
+  area_max: 100             # 전용면적 ㎡ 상한
   pyeong_groups: [20, 30]   # 공급면적 기준 평형대. []면 전체
   price_max: null           # 만원 단위. 예) 100000 = 10억
 
@@ -110,8 +112,11 @@ complexes:
 
 - **단지 추가**: `complexes` 항목을 늘리면 됩니다. 단지번호는
   `https://fin.land.naver.com/complexes/{번호}` URL의 숫자입니다.
-- **단지별 조건**: 각 단지 항목 안에 `trade_types` / `pyeong_groups` /
-  `price_max`를 쓰면 `defaults`를 덮어씁니다.
+- **단지별 조건**: 각 단지 항목 안에 `trade_types` / `area_min` / `area_max` /
+  `pyeong_groups` / `price_max`를 쓰면 `defaults`를 덮어씁니다.
+- **면적 기준**: `area_min/max`는 **전용면적(㎡)** 기준입니다. 현재 값은 56~100㎡
+  (≈ 24~40평형)이며, 표시 단계에서만 걸리므로 `data/snapshot.json`에는 전 매물이
+  그대로 남습니다. 값을 바꾸면 다음 실행부터 다시 넓힐 수 있습니다.
 
 ---
 

@@ -10,10 +10,12 @@ telegram:
   # chat_id 는 환경변수가 없을 때만 이 값을 폴백으로 씁니다. 비워두세요.
   chat_id: ""
 
-# 여기서는 넓게 수집하고, 실제 선택은 HTML 대시보드 UI에서 합니다.
-# (좁히면 UI에서 다시 넓힐 수 없으므로 수집 단계에서는 열어둡니다)
+# 수집은 넓게 하고(스냅샷에는 전 매물이 남습니다), 표시 단계에서만 좁힙니다.
+# 아래를 좁히면 대시보드 UI 에서 다시 넓힐 수 없으니 꼭 필요한 기준만 겁니다.
 defaults:
   trade_types: [매매, 전세]   # 매매 / 전세 / 월세 / 단기임대
+  area_min: 56               # 전용면적 ㎡ 하한 (null 이면 제한 없음)
+  area_max: 100              # 전용면적 ㎡ 상한
   pyeong_groups: []          # 비우면 전체 평형. UI에서 20평대/30평대 선택
   price_max: null            # 만원 단위 상한. 예) 100000 = 10억
   price_min: null
@@ -38,5 +40,6 @@ complexes:
   # - name: 다른단지
   #   number: "12345"
   #   trade_types: [매매, 전세]
-  #   pyeong_groups: [30]
+  #   area_min: 56
+  #   area_max: 100
   #   price_max: 100000
