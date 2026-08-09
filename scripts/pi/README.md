@@ -12,7 +12,8 @@ GitHub Actions  refresh-request.yml   ← 예약(KST 08:30·12:30) + 대시보�
         │  실행 기록 자체가 신호 (아무 일도 하지 않는 워크플로)
         │
    [Pi] poll.sh   2분마다 Actions API 로 최신 실행 id 확인
-        └─ run.sh  인터넷 대기 → reset --hard origin/main → 수집 → git push
+        └─ run.sh  인터넷 대기 → reset --hard origin/main → 의존성 → 수집 → git push
+                     └ 동기화 직후 새 run.sh 로 재실행한다 (코드·스크립트 모두 최신)
                      └ 리포트는 data/outbox.json 에 **적기만** 한다
         │
 GitHub Actions  notify.yml  (outbox.json 이 바뀐 push) → 텔레그램 전송
@@ -108,6 +109,12 @@ pip install -r requirements.txt --break-system-packages
 > §8 의 서비스 파일에 `Environment=PATH=/home/pi/real-estate-monitor/.venv/bin:/usr/bin:/bin`
 > 을 추가해야 합니다. 안 하면 시스템 파이썬이 잡혀 `yaml` 을 못 찾습니다.
 
+**이 `pip install` 은 최초 1회입니다.** 이후 `requirements.txt` 가 바뀌면 `run.sh` 가
+동기화 직후 알아서 다시 설치합니다 — 파일 내용이 실제로 달라졌을 때만 돌기 때문에
+평소 수집 속도에는 영향이 없습니다. 설치해 둔 내용은
+`/var/lib/naver-monitor/requirements.installed` 에 기억하며, 강제로 다시 설치하려면
+이 파일을 지우세요.
+
 **비밀값 설정 단계는 없습니다.** 텔레그램 토큰은 저장소 Secret 에만 있고 Pi 는
 모릅니다. 전송이 되는지 확인하고 싶으면 Pi 가 아니라 GitHub 의 Actions 탭에서
 `텔레그램 전송` 워크플로 실행 결과를 보세요.
@@ -146,7 +153,8 @@ git checkout -- data/
 
 ## 6. 상태 디렉터리
 
-`poll.sh` 는 마지막으로 처리한 요청 id 를 `/var/lib/naver-monitor/last-request` 에
+`poll.sh` 는 마지막으로 처리한 요청 id 를 `/var/lib/naver-monitor/last-request` 에,
+`run.sh` 는 마지막으로 설치한 의존성 목록을 같은 곳의 `requirements.installed` 에
 둡니다. 서비스가 처음 돌 때 systemd 가 `StateDirectory=` 로 만들어 주므로 보통은
 할 일이 없습니다. **수동으로 `poll.sh` 를 먼저 돌려 보려면** 미리 만드세요:
 

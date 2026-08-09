@@ -90,6 +90,7 @@ Wi-Fi 를 쓰기로 했으므로 더 확실히 불가능합니다(WoWLAN 미지�
  │                 workflow_dispatch→ (플래그 없음, 강제 수집)│
  │           5. run.sh 실행                                  │
  │                └─ 인터넷 대기 → reset --hard origin/main   │
+ │                   → 새 run.sh 로 재실행 → 의존성 동기화   │
  │                   → python -m src.main --outbox           │
  │                     (리포트를 data/outbox.json 에 적는다)  │
  │                   → commit → push                         │
