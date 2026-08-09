@@ -1,0 +1,46 @@
+# 갱신 요청 폴러 1회 실행. 이 유닛은 직접 활성화하지 않는다 —
+# naver-monitor-poll.timer 가 2분마다 부른다. ([Install] 이 없는 이유)
+#
+# ⚠️ 비밀값 관련 지시어를 넣지 말 것. Pi 에는 텔레그램 토큰이 없다.
+#    리포트는 data/outbox.json 으로 push 되고 전송은 Actions 가 한다
+#    (DESIGN-PI.md §5.4). EnvironmentFile= 은 의도적으로 없다.
+#
+# 경로·사용자는 설치 환경에 맞춰 고친다 (scripts/pi/README.md).
+[Unit]
+Description=네이버 부동산 — 갱신 요청 폴링
+Documentation=file:/home/pi/real-estate-monitor/scripts/pi/README.md
+# network-online 은 링크만 보장한다. 실제 인터넷 도달 확인은 run.sh 첫 단계가 한다.
+After=network-online.target
+Wants=network-online.target
+# Pi 에는 RTC 가 없어 부팅 직후 시계가 틀릴 수 있다. 시계가 틀리면 state.json 의
+# KST 날짜가 어긋나 --skip-if-done 판단이 깨진다. 타이머의 OnBootSec=2min 이
+# 실질적인 완충이고, 이 줄은 time-sync 를 기다리는 유닛이 활성일 때만 효과가 있다.
+After=time-sync.target
+
+[Service]
+Type=oneshot
+User=pi
+Group=pi
+WorkingDirectory=/home/pi/real-estate-monitor
+ExecStart=/home/pi/real-estate-monitor/scripts/pi/poll.sh
+
+# 한글 로그가 journal 에서 깨지지 않게. systemd 는 LANG 을 물려주지 않는다.
+Environment=PYTHONIOENCODING=utf-8
+Environment=PYTHONUNBUFFERED=1
+
+# poll.sh 는 잠금을 잡은 채 exec 로 run.sh 에 넘어가므로 여기서 보이는 프로세스는
+# 하나뿐이다. 수집(단지당 25초 대기)까지 포함해 넉넉히 잡되, 무한히 매달려
+# 다음 폴링을 영영 막는 일이 없도록 상한을 둔다.
+TimeoutStartSec=25min
+
+# journalctl -t naver-monitor 로 서비스·타이머를 한 번에 본다.
+SyslogIdentifier=naver-monitor
+
+# /var/lib/naver-monitor (마커·ETag)를 User= 소유로 systemd 가 만들어 준다.
+# poll.sh 의 STATE_DIR 과 이름이 같아야 한다.
+StateDirectory=naver-monitor
+
+# ⚠️ PrivateTmp= 를 켜지 말 것. /tmp/naver-monitor.lock 이 서비스와 수동 실행
+#    (flock -n /tmp/naver-monitor.lock ./scripts/pi/run.sh) 사이의 유일한 상호
+#    배제 수단인데, 켜면 서로 다른 /tmp 를 보게 돼 동시 수집이 가능해진다.
+NoNewPrivileges=true

@@ -1,0 +1,18 @@
+# 2분마다 폴링한다. 요청 발행(Actions)과 감지 사이의 최대 지연이 곧 이 주기다
+# (DESIGN-PI.md §2.4 — 버튼 기준 전체 예산 약 7분 중 2분).
+[Unit]
+Description=네이버 부동산 — 2분마다 갱신 요청 확인
+
+[Timer]
+# 부팅 직후는 Wi-Fi·DNS 가 아직 준비 중인 경우가 많다. 2분 뒤 첫 폴링.
+OnBootSec=2min
+
+# **활성 시각이 아니라 종료 시각 기준**으로 센다. 수집이 3분 걸린 경우
+# OnUnitActiveSec 이면 끝나자마자 밀린 폴링이 즉시 한 번 더 돈다.
+OnUnitInactiveSec=2min
+
+# 2분 주기에 초 단위 정확도는 필요 없다. 다른 타이머와 묶어 깨우는 횟수를 줄인다.
+AccuracySec=30s
+
+[Install]
+WantedBy=timers.target
