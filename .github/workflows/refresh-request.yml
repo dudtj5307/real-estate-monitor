@@ -1,0 +1,46 @@
+name: 갱신 요청
+
+# 이 워크플로는 아무 일도 하지 않는다. **실행됐다는 사실 자체가 신호**다.
+# 집 라즈베리파이가 2분마다 Actions API 로 이 워크플로의 최신 실행 id 를 확인하고,
+# 지난번에 처리한 id 와 다르면 수집을 시작한다 (DESIGN-PI.md §2.3).
+#
+# 수집을 여기서 하지 않는 이유: 네이버가 공용 러너 IP 를 차단한다(실측, DESIGN.md §1).
+#
+# ⚠️ 파일 이름이 계약이다. scripts/pi/poll.sh 의 WORKFLOW 와 대시보드 버튼
+#    (src/htmlgen.py) 이 이 이름을 그대로 가리킨다. 바꾸려면 셋을 같이 바꿔야 한다.
+on:
+  schedule:
+    # 정각은 전 세계 워크플로가 몰려 지연이 커지므로 어중간한 분을 쓴다.
+    # (Actions cron 은 5~30분 지연될 수 있다 — 이 지연은 Pi 폴링 주기와 무관하다)
+    - cron: "30 23 * * *"   # KST 08:30 (UTC 전날 23:30)
+    - cron: "30 3 * * *"    # KST 12:30 (UTC 03:30)
+  workflow_dispatch:        # 대시보드 "지금 갱신" 버튼이 여기로 온다
+
+# 토큰에 아무 권한도 주지 않는다. 저장소를 읽지도 쓰지도 않기 때문이다
+# (checkout 조차 없다). 키를 생략하면 저장소 기본값(쓰기일 수 있음)을 물려받으므로
+# 빈 맵을 명시한다.
+permissions: {}
+
+jobs:
+  request:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      # 예약과 버튼이 겹쳐 두 번 발행돼도 문제없다. Pi 는 "최신 run id 하나"만 보고
+      # 마커와 비교하므로, 중복 요청은 수집 1회로 합쳐진다 (DESIGN-PI.md §2.3).
+      - name: 요청 발행
+        env:
+          TRIGGER: ${{ github.event_name }}
+        run: |
+          {
+            echo "### 갱신 요청이 발행됐습니다"
+            echo ""
+            echo "- 트리거: \`$TRIGGER\`"
+            echo "- 라즈베리파이가 최대 2분 안에 감지해 수집을 시작합니다."
+            echo "- 결과는 커밋과 텔레그램으로 도착합니다 (전체 최대 약 7분)."
+            echo ""
+            echo "이 워크플로는 아무 일도 하지 않습니다 — 실행 기록 자체가 신호입니다."
+            echo "수집이 실제로 돌았는지는 저장소의 새 커밋으로 확인하세요."
+            echo "Pi 가 죽어 있으면 KST 14:00 의 \`watchdog\` 이 경보를 보냅니다."
+          } >> "$GITHUB_STEP_SUMMARY"
