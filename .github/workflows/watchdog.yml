@@ -1,0 +1,148 @@
+name: 감시 · 폴백
+
+# 평상시 수집은 집 라즈베리파이가 한다 (DESIGN-PI.md §2). 그 Pi 가 죽으면
+# **아무 일도 일어나지 않는 것**이 증상이라서, 집 밖에서는 알아챌 방법이 없다.
+# 이 워크플로가 하루 한 번 "오늘 수집됐는가"를 보고 아니면 알리고 대신 수집한다.
+#
+# 경보는 폴백 성공 여부와 **무관하게** 먼저 보낸다. 폴백이 어쩌다 성공하면
+# 데이터는 채워지지만 Pi 가 죽은 사실 자체는 여전히 알아야 하기 때문이다.
+#
+# ⚠️ 폴백은 --outbox 를 쓰지 않는다. 여기는 secret 이 있어 직접 보낼 수 있고,
+#    --outbox 를 쓰면 data/outbox.json 이 바뀌어 notify.yml 까지 덩달아 돈다.
+on:
+  schedule:
+    # KST 14:00. 08:30 요청과 12:30 요청이 모두 지나간 뒤라야 "오늘 못 받았다"가
+    # 확정된다 (Actions cron 지연 5~30분 + Pi 폴링 2분을 감안한 여유).
+    - cron: "0 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write   # 폴백이 수집에 성공하면 스냅샷·대시보드를 커밋한다
+
+concurrency:
+  group: watchdog
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    # 차단이면 첫 요청에서 끝나고, 성공해도 단지 간 대기(25초)가 전부다
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # state.json 이 아예 없어도 "오늘 수집 안 됨"으로 본다. 설치 직후이거나
+      # 파일이 날아간 상황인데, 둘 다 조용히 넘어가면 안 되는 일이다.
+      - name: 오늘 수집됐는지 확인
+        id: check
+        run: |
+          set -euo pipefail
+          today=$(TZ=Asia/Seoul date +%F)
+          last=""
+          if [ -f data/state.json ]; then
+            last=$(jq -r '.last_success // ""' data/state.json)
+          fi
+          echo "last_success=$last" >> "$GITHUB_OUTPUT"
+
+          if [ "$last" = "$today" ]; then
+            echo "stale=false" >> "$GITHUB_OUTPUT"
+            echo "오늘($today) 수집 기록이 있습니다 — 할 일 없음"
+            echo "### ✅ 오늘 수집 확인됨 ($today)" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "stale=true" >> "$GITHUB_OUTPUT"
+            echo "::warning::오늘($today) 수집 기록이 없습니다 (마지막 성공: ${last:-없음})"
+          fi
+
+      # 폴백보다 **먼저** 보낸다. 폴백이 성공하든 실패하든 이 경보는 나가야 한다.
+      - name: 경보
+        if: steps.check.outputs.stale == 'true'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          LAST: ${{ steps.check.outputs.last_success }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
+            echo "::error::secret 이 비어 있습니다 — 경보를 보낼 수 없습니다"
+            exit 1
+          fi
+          curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${TELEGRAM_CHAT_ID}" \
+            -d "disable_web_page_preview=true" \
+            --data-urlencode "text=🛠 오늘 수집 기록이 없습니다 (마지막 성공: ${LAST:-없음})
+
+          집 라즈베리파이가 꺼졌거나, 네트워크·push 가 막혔을 수 있습니다.
+          지금 공용 러너로 한 번 대신 수집합니다 — 네이버가 러너 IP 를 막고 있으면
+          이 폴백도 실패할 수 있습니다.
+
+          확인: journalctl -u naver-monitor-poll -n 50
+          로그: ${RUN_URL}" > /dev/null
+          echo "### 🛠 경보 발송 (마지막 성공: ${LAST:-없음})" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/setup-python@v5
+        if: steps.check.outputs.stale == 'true'
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+        if: steps.check.outputs.stale == 'true'
+
+      - name: 폴백 수집
+        id: fallback
+        if: steps.check.outputs.stale == 'true'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        # --skip-if-done 을 붙이는 이유: Pi 가 일부 단지만 받고 죽었을 수 있다.
+        # 그 경우 남은 단지만 부르면 러너가 네이버를 두드리는 횟수가 줄어든다.
+        #
+        # --outbox 는 쓰지 않는다 (위 ⚠️). 여기서 직접 보낸다.
+        #
+        # 종료 코드 2 = 러너 IP 차단. 예상된 실패이고 경보는 이미 나갔으므로
+        # job 을 빨간 X 로 만들지 않는다 — 매번 빨간 X 가 뜨면 진짜 고장을 놓친다.
+        run: |
+          set +e
+          python -m src.main --skip-if-done
+          code=$?
+          set -e
+          if [ "$code" = "2" ]; then
+            echo "::warning::네이버가 러너 IP 를 차단했습니다(429). 폴백 수집 실패 — 데이터는 내일로 밀립니다."
+            echo "### ⚠️ 폴백 수집 실패 (러너 IP 차단)" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          exit $code
+
+      # 실패해도 돌려야 한다. 실패 알림 기록(state.json)이 커밋돼야 내일 실행이
+      # 같은 알림을 또 보내지 않는다. 폴백이 성공했다면 last_success 가 오늘로
+      # 찍히고, 복귀한 Pi 의 --skip-if-done 이 그걸 보고 중복 수집을 피한다.
+      - name: 스냅샷 · 대시보드 커밋
+        if: always() && steps.check.outputs.stale == 'true'
+        run: |
+          git add data/ docs/
+          if git diff --cached --quiet; then
+            echo "변경 없음"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore: 폴백 수집 $(TZ=Asia/Seoul date +%Y-%m-%d)"
+          git push
+
+      # 파이썬이 예외로 죽으면(설정 오류·의존성 문제 등) 앱이 보내는 실패 알림도
+      # 못 나간다. 그 경우에만 워크플로가 직접 알린다.
+      - name: 예상 못한 실패 알림
+        if: failure() && steps.fallback.outcome == 'failure'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -z "$TELEGRAM_BOT_TOKEN" ]; then exit 0; fi
+          curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${TELEGRAM_CHAT_ID}" \
+            -d "disable_web_page_preview=true" \
+            --data-urlencode "text=🛠 폴백 수집이 예상 못한 오류로 멈췄습니다 (429 차단이 아닙니다).
+          로그: ${RUN_URL}" > /dev/null
