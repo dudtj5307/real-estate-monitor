@@ -118,6 +118,8 @@ a:hover{text-decoration:underline}
   background:var(--chip);border:1px solid var(--line);font-size:.8125rem;
   font-weight:600;color:var(--accent);white-space:nowrap}
 .refresh:hover{text-decoration:none;border-color:var(--accent)}
+/* 소요 시간 힌트. title 툴팁은 모바일에서 안 뜨므로 눈에 보이게도 적는다 */
+.refresh small{font-weight:400;color:var(--muted);margin-left:5px}
 .empty{color:var(--muted);padding:16px 0;font-size:.875rem}
 footer{color:var(--muted);font-size:.8125rem;text-align:center;margin-top:32px}
 #theme{position:fixed;top:14px;right:14px;font:inherit;font-size:1rem;
@@ -483,8 +485,12 @@ def build(entries: list[tuple[str, list[TradeSection]]],
     """entries: [(단지명, [TradeSection, ...]), ...] → 완결된 HTML 문서.
 
     repo 를 주면 "지금 갱신" 버튼이 그 저장소의 Actions 실행 화면으로 연결된다.
-    정적 페이지는 네이버를 직접 호출할 수 없으므로(CORS + 세션 쿠키),
-    갱신은 Actions 를 돌려 docs/index.html 을 다시 커밋하는 방식이다.
+    정적 페이지는 네이버를 직접 호출할 수 없으므로(CORS + 세션 쿠키) 갱신을
+    남에게 시켜야 하는데, 그 "남"이 Actions 에서 집 라즈베리파이로 바뀌었다.
+
+    버튼 → refresh-request.yml 실행(아무 일도 하지 않는다) → 그 실행 기록을
+    Pi 가 2분 안에 감지 → 수집 → docs/index.html 을 다시 커밋 → Pages 반영.
+    그래서 눌러도 즉시 바뀌지 않는다 (DESIGN-PI.md §2.4 — 최대 약 7분).
     """
     # 러너는 UTC 라 KST 로 고정한다. 안 하면 '갱신 09:37' 이 '00:37' 로 찍힌다.
     now = now or datetime.now(KST)
@@ -492,10 +498,14 @@ def build(entries: list[tuple[str, list[TradeSection]]],
 
     refresh = ""
     if repo:
-        url = f"https://github.com/{repo}/actions/workflows/daily.yml"
+        url = f"https://github.com/{repo}/actions/workflows/refresh-request.yml"
+        # 누른 뒤 아무 일도 안 일어나는 것처럼 보이는 구간(폴링 2분 + 수집 3분 +
+        # Pages 반영 2분)이 있다. 소요 시간을 버튼에 붙여 두지 않으면 고장으로 읽힌다.
+        tip = ("Actions 의 [Run workflow] 를 눌러 갱신을 요청합니다. "
+               "집 라즈베리파이가 수집해 다시 커밋하므로 반영까지 최대 약 7분 걸립니다.")
         refresh = (
-            f'<a class="refresh" href="{_esc(url)}" target="_blank" rel="noopener">'
-            f"🔄 지금 갱신</a>"
+            f'<a class="refresh" href="{_esc(url)}" target="_blank" rel="noopener" '
+            f'title="{_esc(tip)}">🔄 지금 갱신<small>~7분</small></a>'
         )
 
     cards = [_card(name, sections, i, price_focus)

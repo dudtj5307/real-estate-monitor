@@ -433,7 +433,12 @@ jobs:
 
 ---
 
-## T6 — 대시보드 버튼 연결 변경 `src/htmlgen.py`
+## T6 — 대시보드 버튼 연결 변경 `src/htmlgen.py` ✅ 완료
+
+> **구현 결과.** 소요 시간 안내를 `title` 툴팁 **과** 버튼 안의 `<small>~7분</small>`
+> 두 군데에 넣었습니다. 툴팁만 두면 모바일에서 안 뜨는데, 이 대시보드는 주로
+> 폰에서 보므로 정작 필요한 데서 안내가 사라집니다. CSS 한 줄만 늘었고 외부
+> 리소스는 그대로 0 입니다.
 
 **목적.** "지금 갱신" 버튼을 새 요청 워크플로로 보냅니다.
 
@@ -461,9 +466,11 @@ url = f"https://github.com/{repo}/actions/workflows/daily.yml"
 
 **수용 기준**
 
-- [ ] 생성된 `docs/index.html` 의 버튼 링크가 `refresh-request.yml` 을 가리킨다
-- [ ] `repo=""` 이면 버튼이 나오지 않는다
-- [ ] 외부 리소스 참조가 늘지 않았다
+- [x] 생성된 `docs/index.html` 의 버튼 링크가 `refresh-request.yml` 을 가리킨다
+      (`htmlgen.build()` 직접 호출로 확인. 저장소의 `docs/index.html` 자체는
+      다음 수집 때 갱신된다)
+- [x] `repo=""` 이면 버튼이 나오지 않는다
+- [x] 외부 리소스 참조가 늘지 않았다 (`src`/`href` 로 불러오는 외부 자원 0)
 
 ---
 
